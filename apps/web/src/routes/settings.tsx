@@ -16,7 +16,8 @@ import { authClient, signOut, useAuth } from "@/lib/auth-client";
 import { useOpenRouterKey } from "@/stores/openrouter";
 import { DAILY_LIMIT_CENTS, useProviderStore } from "@/stores/provider";
 import { getCacheStatus, useModels } from "@/stores/model";
-import {  useChatTitleStore } from "@/stores/chat-title";
+import { useChatTitleStore } from "@/stores/chat-title";
+import { useUIStore } from "@/stores/ui";
 import { OpenRouterConnectModal } from "@/components/openrouter-connect-modal";
 import { DeleteAccountModal } from "@/components/delete-account-modal";
 import { Switch } from "@/components/ui/switch";
@@ -723,6 +724,8 @@ function ModelsSection() {
   const { models, isLoading, reload, totalCount, error } = useModels();
   const cacheStatus = getCacheStatus();
   const [isReloading, setIsReloading] = useState(false);
+  const filterStyle = useUIStore((s) => s.filterStyle);
+  const setFilterStyle = useUIStore((s) => s.setFilterStyle);
 
   const handleReload = async () => {
     setIsReloading(true);
@@ -746,6 +749,47 @@ function ModelsSection() {
 
   return (
     <div className="space-y-8">
+      {/* Filter Display */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+          Filter Display
+        </h2>
+        <div className="rounded-xl border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">Provider filters</p>
+              <p className="text-sm text-muted-foreground">
+                Show provider names or icons in the model selector filters.
+              </p>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+              <button
+                onClick={() => setFilterStyle("names")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                  filterStyle === "names"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Names
+              </button>
+              <button
+                onClick={() => setFilterStyle("icons")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                  filterStyle === "icons"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Icons
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Model Source Info */}
       <section className="space-y-4">
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">

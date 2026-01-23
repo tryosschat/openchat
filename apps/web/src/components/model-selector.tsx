@@ -4,6 +4,7 @@ import type { Model } from "@/stores/model";
 import { cn } from "@/lib/utils";
 import { getModelById, useModelStore, useModels } from "@/stores/model";
 import { useFavoriteModels } from "@/hooks/use-favorite-models";
+import { useUIStore } from "@/stores/ui";
 import { CheckIcon, ChevronDownIcon, SearchIcon } from "@/components/icons";
 
 function useIsMobile() {
@@ -243,6 +244,7 @@ export function ModelSelector({
 
   const { models, isLoading } = useModels();
   const { favorites, toggleFavorite, isFavorite, addDefaults, missingDefaultsCount } = useFavoriteModels();
+  const filterStyle = useUIStore((s) => s.filterStyle);
 
   const deferredQuery = useDeferredValue(query);
   const isSearching = deferredQuery.trim().length > 0;
@@ -573,7 +575,9 @@ export function ModelSelector({
                           : "bg-muted/50 text-muted-foreground active:bg-accent active:text-foreground",
                       )}
                     >
-                      <ProviderLogo providerId={provider.logoId} className="size-4" />
+                      {filterStyle === "icons" ? (
+                        <ProviderLogo providerId={provider.logoId} className="size-4" />
+                      ) : null}
                       <span className="max-w-[80px] truncate">{provider.name}</span>
                     </button>
                   ))}
@@ -708,14 +712,19 @@ export function ModelSelector({
                         }
                       }}
                       className={cn(
-                        "flex size-9 items-center justify-center rounded-xl transition-all duration-200",
+                        "flex items-center justify-center rounded-xl transition-all duration-200",
+                        filterStyle === "icons" ? "size-9" : "h-9 w-full px-2",
                         selectedProvider === provider.id
                           ? "bg-accent text-foreground shadow-sm"
                           : "text-muted-foreground hover:bg-accent/60 hover:text-foreground hover:scale-105",
                       )}
                       title={provider.name}
                     >
-                      <ProviderLogo providerId={provider.logoId} className="size-5" />
+                      {filterStyle === "icons" ? (
+                        <ProviderLogo providerId={provider.logoId} className="size-5" />
+                      ) : (
+                        <span className="text-[11px] font-medium truncate">{provider.name}</span>
+                      )}
                     </button>
                   ))}
                 </div>

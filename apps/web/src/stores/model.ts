@@ -61,7 +61,7 @@ const PROVIDER_INFO: Partial<Record<string, { name: string; logoId: string }>> =
   openai: { name: "OpenAI", logoId: "openai" },
   anthropic: { name: "Anthropic", logoId: "anthropic" },
   google: { name: "Google", logoId: "google" },
-  "meta-llama": { name: "Llama", logoId: "llama" },
+  "meta-llama": { name: "Meta Llama", logoId: "llama" },
   mistralai: { name: "Mistral", logoId: "mistral" },
   deepseek: { name: "DeepSeek", logoId: "deepseek" },
   "x-ai": { name: "xAI", logoId: "xai" },
@@ -457,7 +457,7 @@ function getFallbackModels(): Array<Model> {
     {
       id: "meta-llama/llama-3.3-70b-instruct",
       name: "Llama 3.3 70B",
-      provider: "Llama",
+      provider: "Meta Llama",
       providerId: "meta-llama",
       logoId: "llama",
       family: "Llama 3.3",
