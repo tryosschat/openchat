@@ -43,28 +43,23 @@ interface SidebarProviderProps {
 function SidebarProvider({
   children,
   defaultOpen = true,
-  defaultCollapsed = false,
+  defaultCollapsed: _defaultCollapsed = false,
 }: SidebarProviderProps) {
   const { sidebarOpen, setSidebarOpen, sidebarCollapsed, setSidebarCollapsed } = useUIStore();
 
   const [isMobile, setIsMobile] = React.useState(false);
 
-  // Initialize from store or defaults
+  // Initialize sidebar open state from props on first render only (collapsed is persisted)
+  const isInitializedRef = React.useRef(false);
   React.useEffect(() => {
-    if (sidebarOpen === undefined) {
-      setSidebarOpen(defaultOpen);
+    if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
+      // Apply defaultOpen only on first mount (store has its own default for collapsed)
+      if (defaultOpen !== sidebarOpen) {
+        setSidebarOpen(defaultOpen);
+      }
     }
-    if (sidebarCollapsed === undefined) {
-      setSidebarCollapsed(defaultCollapsed);
-    }
-  }, [
-    defaultOpen,
-    defaultCollapsed,
-    sidebarOpen,
-    sidebarCollapsed,
-    setSidebarOpen,
-    setSidebarCollapsed,
-  ]);
+  }, [defaultOpen, sidebarOpen, setSidebarOpen]);
 
   // Handle responsive breakpoint - only auto-close when transitioning TO mobile
   const wasMobileRef = React.useRef<boolean | null>(null);

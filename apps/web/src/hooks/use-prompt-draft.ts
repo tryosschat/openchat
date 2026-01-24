@@ -59,22 +59,6 @@ export function usePromptDraft({ chatId, textInputController }: UsePromptDraftOp
 		};
 	}, [chatId, getDraft, textInputController.setInput]);
 
-	// Debounced save function
-	const saveDraft = useCallback(
-		(text: string) => {
-			// Clear any existing timeout
-			if (debounceTimeoutRef.current) {
-				clearTimeout(debounceTimeoutRef.current);
-			}
-
-			// Schedule a new save
-			debounceTimeoutRef.current = setTimeout(() => {
-				setDraft(chatId, text);
-			}, DEBOUNCE_MS);
-		},
-		[chatId, setDraft],
-	);
-
 	// Clear draft (called after successful submit)
 	const clearDraft = useCallback(() => {
 		// Clear any pending save
