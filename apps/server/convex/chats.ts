@@ -401,9 +401,9 @@ export const getChatReadStatuses = query({
 // ============================================================================
 
 const TITLE_STYLE_PROMPTS: Record<"short" | "standard" | "long", string> = {
-	short: "Use 2-4 words. Prefer numerals (e.g., 4-day) when present.",
-	standard: "Use 4-6 words. Prefer numerals (e.g., 4-day) when present.",
-	long: "Use 7-10 words. Prefer numerals (e.g., 4-day) when present.",
+	short: "Use 2-4 words.",
+	standard: "Use 4-6 words.",
+	long: "Use 7-10 words.",
 };
 
 export const generateTitle = action({
@@ -430,7 +430,7 @@ export const generateTitle = action({
 		const systemPrompt = [
 			"Create a specific, useful chat title.",
 			"Return only the title in Title Case; no quotes, no trailing punctuation.",
-			"Focus on the core task and timeframe; avoid filler words like 'and', 'with', 'about'.",
+			"Focus on the core topic or task; avoid filler words like 'and', 'with', 'about'.",
 			TITLE_STYLE_PROMPTS[args.length],
 		].join(" ");
 
