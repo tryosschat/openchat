@@ -42,8 +42,6 @@ http.route({
       JSON.stringify({ 
         ok: true, 
         ts: new Date().toISOString(),
-        convexSiteUrl: process.env.CONVEX_SITE_URL,
-        siteUrl: process.env.SITE_URL,
       }),
       {
         status: 200,

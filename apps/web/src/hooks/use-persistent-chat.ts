@@ -44,6 +44,29 @@ interface StreamingState {
 	reasoning: string;
 }
 
+interface ReasoningPartWithState {
+	type: "reasoning";
+	text: string;
+	state?: "streaming" | "done";
+}
+
+function isReasoningPart(part: unknown): part is ReasoningPartWithState {
+	return (
+		typeof part === "object" &&
+		part !== null &&
+		"type" in part &&
+		(part as { type: string }).type === "reasoning"
+	);
+}
+
+function hasStreamingState(part: unknown): boolean {
+	return isReasoningPart(part) && part.state === "streaming";
+}
+
+function getReasoningText(part: unknown): string | undefined {
+	return isReasoningPart(part) ? part.text : undefined;
+}
+
 const TITLE_GENERATION_RETRY_DELAY_MS = 1500;
 
 function convexMessageToUIMessage(msg: {
@@ -173,7 +196,7 @@ export function usePersistentChat({
 						if (idx < 0) return prev;
 						const msg = prev[idx];
 						const hasStreamingReasoning = msg.parts?.some(
-							(p) => p.type === "reasoning" && (p as any).state === "streaming"
+							(p) => hasStreamingState(p)
 						);
 						if (!hasStreamingReasoning) return prev;
 						const parts = msg.parts
@@ -182,7 +205,7 @@ export function usePersistentChat({
 									? { ...p, state: "done" as const }
 									: p
 							)
-							.filter((p) => !(p.type === "reasoning" && !(p as any).text));
+							.filter((p) => !(p.type === "reasoning" && !getReasoningText(p)));
 						const updated = [...prev];
 						updated[idx] = { ...updated[idx], parts };
 						return updated;
@@ -221,7 +244,7 @@ export function usePersistentChat({
 				if (prev.find(m => m.id === streamId)) return prev;
 				const parts: UIMessage["parts"] = [];
 				if (jobReasoning) {
-					parts.push({ type: "reasoning", text: jobReasoning, state: "streaming" } as any);
+					parts.push({ type: "reasoning", text: jobReasoning, state: "streaming" } as ReasoningPartWithState as UIMessage["parts"][number]);
 				}
 				parts.push({ type: "text" as const, text: jobContent });
 				return [
@@ -243,7 +266,7 @@ export function usePersistentChat({
 				const currentText = prev[idx].parts?.find(p => p.type === "text");
 				const currentReasoning = prev[idx].parts?.find(p => p.type === "reasoning");
 				const textSame = currentText && "text" in currentText && currentText.text === jobContent;
-				const reasoningSame = currentReasoning && "text" in currentReasoning && (currentReasoning as any).text === jobReasoning;
+				const reasoningSame = currentReasoning && getReasoningText(currentReasoning) === jobReasoning;
 				if (textSame && (reasoningSame || (!jobReasoning && !currentReasoning))) {
 					return prev;
 				}
@@ -251,7 +274,8 @@ export function usePersistentChat({
 				const isJobRunning = activeStreamJob.status === "running";
 				const parts: UIMessage["parts"] = [];
 				if (jobReasoning) {
-					parts.push({ type: "reasoning", text: jobReasoning, state: isJobRunning ? "streaming" : "done" } as any);
+					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: jobReasoning, state: isJobRunning ? "streaming" : "done" };
+				parts.push(reasoningPart as UIMessage["parts"][number]);
 				}
 				parts.push({ type: "text", text: jobContent });
 
@@ -349,7 +373,8 @@ export function usePersistentChat({
 
 				const initialParts: UIMessage["parts"] = [];
 				if (reasoningEffort && reasoningEffort !== "none") {
-					initialParts.push({ type: "reasoning", text: "", state: "streaming" } as any);
+					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
+				initialParts.push(reasoningPart as UIMessage["parts"][number]);
 				}
 				initialParts.push({ type: "text", text: "" });
 
