@@ -16,6 +16,9 @@ export default defineSchema({
 		// Daily search usage tracking
 		searchUsageCount: v.optional(v.number()),
 		searchUsageDate: v.optional(v.string()), // "YYYY-MM-DD" format (UTC)
+		// Daily AI usage tracking (cents, UTC date)
+		aiUsageCents: v.optional(v.number()),
+		aiUsageDate: v.optional(v.string()), // "YYYY-MM-DD" format (UTC)
 		// Admin ban status (for manual bans)
 		banned: v.optional(v.boolean()),
 		bannedAt: v.optional(v.number()),

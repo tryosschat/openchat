@@ -16,6 +16,7 @@ import type { GenericSchema, SchemaDefinition } from "convex/server";
 // Create modules object that convex-test expects (lazy-loaded functions)
 export const modules = {
   './auth.config.ts': () => import('./auth.config'),
+  './backgroundStream.ts': () => import('./backgroundStream'),
   './chats.ts': () => import('./chats'),
   './crons.ts': () => import('./crons'),
   './files.ts': () => import('./files'),
@@ -27,6 +28,7 @@ export const modules = {
   './schema.ts': () => import('./schema'),
   './users.ts': () => import('./users'),
   './lib/batchFileUrls.ts': () => import('./lib/batchFileUrls'),
+  './lib/billingUtils.ts': () => import('./lib/billingUtils'),
   './lib/dbStats.ts': () => import('./lib/dbStats'),
   './lib/logger.ts': () => import('./lib/logger'),
   './lib/rateLimiter.ts': () => import('./lib/rateLimiter'),

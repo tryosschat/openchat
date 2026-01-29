@@ -68,6 +68,7 @@ interface ProviderState {
   addUsage: (cents: number) => void;
   addSearchUsage: () => void;
   resetDailyUsage: () => void;
+  syncUsage: (cents: number, date: string) => void;
   toggleWebSearch: () => void;
   setWebSearchEnabled: (enabled: boolean) => void;
 
@@ -186,6 +187,15 @@ export const useProviderStore = create<ProviderState>()(
             },
             false,
             "provider/resetDaily",
+          ),
+        syncUsage: (cents, date) =>
+          set(
+            {
+              dailyUsageCents: Math.max(0, cents),
+              lastResetDate: date,
+            },
+            false,
+            "provider/syncUsage",
           ),
 
         remainingBudgetCents: () => {

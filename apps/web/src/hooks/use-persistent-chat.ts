@@ -427,9 +427,17 @@ export function usePersistentChat({
 				}
 			} catch (err) {
 				console.error("[Chat] Error:", err);
-				setError(err instanceof Error ? err : new Error("Unknown error"));
+				const parsedError = err instanceof Error ? err : new Error("Unknown error");
+				setError(parsedError);
 				setStatus("error");
-				toast.error("Failed to send message");
+				const errorMessage = parsedError.message.toLowerCase();
+				if (errorMessage.includes("daily") && errorMessage.includes("limit")) {
+					toast.error("Daily limit reached", {
+						description: "Add your OpenRouter API key to continue.",
+					});
+				} else {
+					toast.error("Failed to send message");
+				}
 			}
 		},
 		[

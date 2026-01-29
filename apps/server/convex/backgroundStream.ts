@@ -1,6 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation, internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import {
+	DAILY_AI_LIMIT_CENTS,
+	getCurrentDateKey,
+	normalizeUsagePayload,
+	calculateUsageCents,
+} from "./lib/billingUtils";
+import type { UsagePayload } from "./lib/billingUtils";
 
 export const startStream = mutation({
 	args: {
@@ -25,6 +32,35 @@ export const startStream = mutation({
 		const chat = await ctx.db.get(args.chatId);
 		if (!chat || chat.userId !== args.userId) {
 			throw new Error("Chat not found or unauthorized");
+		}
+
+		if (args.provider === "osschat") {
+			const user = await ctx.db.get(args.userId);
+			if (!user) {
+				throw new Error("User not found");
+			}
+
+			const currentDate = getCurrentDateKey();
+			const usedCents =
+				user.aiUsageDate === currentDate ? (user.aiUsageCents ?? 0) : 0;
+			if (usedCents >= DAILY_AI_LIMIT_CENTS) {
+				throw new Error("Daily usage limit reached. Connect your OpenRouter account to continue.");
+			}
+
+			// Prevent concurrent osschat streams per user (TOCTOU mitigation)
+			const runningOsschatJobs = await ctx.db
+				.query("streamJobs")
+				.withIndex("by_user", (q) => q.eq("userId", args.userId).eq("status", "running"))
+				.collect();
+			const pendingOsschatJobs = await ctx.db
+				.query("streamJobs")
+				.withIndex("by_user", (q) => q.eq("userId", args.userId).eq("status", "pending"))
+				.collect();
+			const activeOsschatCount = runningOsschatJobs.filter(j => j.provider === "osschat").length
+				+ pendingOsschatJobs.filter(j => j.provider === "osschat").length;
+			if (activeOsschatCount > 0) {
+				throw new Error("Please wait for your current request to finish before sending another.");
+			}
 		}
 
 		const existingActiveStream = await ctx.db
@@ -347,9 +383,8 @@ export const executeStream = internalAction({
 				signal: controller.signal,
 			});
 
-			clearTimeout(timeoutId);
-
 			if (!response.ok) {
+				clearTimeout(timeoutId);
 				const errorText = await response.text();
 				await ctx.runMutation(internal.backgroundStream.failStream, {
 					jobId: args.jobId,
@@ -360,6 +395,7 @@ export const executeStream = internalAction({
 
 			const reader = response.body?.getReader();
 			if (!reader) {
+				clearTimeout(timeoutId);
 				await ctx.runMutation(internal.backgroundStream.failStream, {
 					jobId: args.jobId,
 					error: "No response body",
@@ -373,6 +409,7 @@ export const executeStream = internalAction({
 			let buffer = "";
 			let updateCounter = 0;
 			const UPDATE_INTERVAL = 5;
+			let usageSummary: UsagePayload | null = null;
 
 			while (true) {
 				const { done, value } = await reader.read();
@@ -390,6 +427,9 @@ export const executeStream = internalAction({
 					try {
 						const parsed = JSON.parse(data);
 						const delta = parsed.choices?.[0]?.delta;
+						if (parsed.usage && typeof parsed.usage === "object") {
+							usageSummary = normalizeUsagePayload(parsed.usage as Record<string, unknown>);
+						}
 
 						if (delta?.content) {
 							fullContent += delta.content;
@@ -427,6 +467,39 @@ export const executeStream = internalAction({
 						}
 					} catch (parseError) {
 						console.error("[BackgroundStream] Failed to parse SSE chunk:", data);
+					}
+				}
+			}
+
+			clearTimeout(timeoutId);
+
+			if (job.provider === "osschat") {
+				const usageCents = calculateUsageCents(
+					usageSummary,
+					job.messages,
+					fullContent,
+				);
+				if (usageCents && usageCents > 0) {
+					let recorded = false;
+					for (let attempt = 0; attempt < 2; attempt++) {
+						try {
+							await ctx.runMutation(internal.users.incrementAiUsage, {
+								userId: job.userId,
+								usageCents,
+							});
+							recorded = true;
+							break;
+						} catch (error) {
+							console.warn(
+								`[BackgroundStream] Usage record attempt ${attempt + 1} failed:`,
+								error,
+							);
+						}
+					}
+					if (!recorded) {
+						console.error(
+							`[BackgroundStream] UNRECORDED USAGE: userId=${job.userId}, cents=${usageCents}, model=${job.model}, jobId=${args.jobId}`,
+						);
 					}
 				}
 			}

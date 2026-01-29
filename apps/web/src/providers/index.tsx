@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ConvexProviderWithAuth, useMutation } from "convex/react";
+import { ConvexProviderWithAuth, useMutation, useQuery } from "convex/react";
 import { Toaster } from "sonner";
 import { api } from "@server/convex/_generated/api";
 import { convexClient } from "../lib/convex";
 import { StableAuthProvider, authClient, useAuth } from "../lib/auth-client";
 import { prefetchModels } from "../stores/model";
+import { useProviderStore } from "../stores/provider";
 import { ThemeProvider } from "./theme-provider";
 import { PostHogProvider } from "./posthog";
 
@@ -106,10 +107,43 @@ function UserSyncProvider({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function UsageSyncProvider({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated, loading } = useAuth();
+  const syncUsage = useProviderStore((s) => s.syncUsage);
+  const resetDailyUsage = useProviderStore((s) => s.resetDailyUsage);
+  const convexUser = useQuery(
+    api.users.getByExternalId,
+    !loading && isAuthenticated && user?.id ? { externalId: user.id } : "skip",
+  );
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) {
+      resetDailyUsage();
+      return;
+    }
+    if (!convexUser) return;
+    const today = new Date().toISOString().split("T")[0];
+    const serverDate = convexUser.aiUsageDate ?? today;
+    const serverUsage =
+      serverDate === today ? (convexUser.aiUsageCents ?? 0) : 0;
+    syncUsage(serverUsage, today);
+  }, [
+    convexUser,
+    isAuthenticated,
+    resetDailyUsage,
+    syncUsage,
+    user?.id,
+  ]);
+
+  return <>{children}</>;
+}
+
 function ConvexAuthWrapper({ children }: { children: React.ReactNode }) {
   return (
     <ConvexProviderWithAuth client={convexClient!} useAuth={useStableConvexAuth}>
-      <UserSyncProvider>{children}</UserSyncProvider>
+      <UserSyncProvider>
+        <UsageSyncProvider>{children}</UsageSyncProvider>
+      </UserSyncProvider>
     </ConvexProviderWithAuth>
   );
 }
