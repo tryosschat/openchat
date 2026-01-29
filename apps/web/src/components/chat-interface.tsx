@@ -15,7 +15,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
-import { AnimatePresence, motion } from "motion/react";
 import { ArrowUpIcon, BrainIcon, ChevronDownIcon, GlobeIcon,
   LinkIcon,
   Loader2Icon,
@@ -52,7 +51,7 @@ import type { UIDataTypes, UIMessagePart, UITools } from "ai";
 import type {PromptInputMessage} from "./ai-elements/prompt-input";
 import type {ReasoningEffort} from "@/stores/model";
 import { cn } from "@/lib/utils";
-import { useModelStore, useModels, getModelById, getModelCapabilities } from "@/stores/model";
+import { getModelById, getModelCapabilities, useModelStore, useModels } from "@/stores/model";
 import { useWebSearch } from "@/stores/provider";
 import { usePromptDraft } from "@/hooks/use-prompt-draft";
 import {
@@ -536,7 +535,6 @@ function ChainOfThoughtStepItem({ step }: { step: ChainOfThoughtStep }) {
               "prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:rounded",
               "prose-ul:my-1 prose-ol:my-1 prose-li:text-xs prose-li:text-muted-foreground",
               "max-h-[200px] overflow-y-auto",
-              step.status === "active" && "animate-pulse",
             )}
           >
             <Streamdown>{step.content}</Streamdown>
@@ -1356,8 +1354,8 @@ function ChatInterfaceContent({
           {messages.length === 0 && isNewChat ? (
             <StartScreen onPromptSelect={onPromptSelect} />
           ) : messages.length === 0 ? null : (
-            <AnimatePresence initial={false} mode="popLayout">
-              {messages.map((message, index) => {
+            <>
+              {messages.map((message) => {
                 // Cast to include our custom error fields
                 const msg = message as typeof message & {
                   error?: {
@@ -1373,19 +1371,13 @@ function ChatInterfaceContent({
                 // Render error messages with special styling (like T3.chat)
                 if (msg.messageType === "error" && msg.error) {
                   return (
-                    <motion.div
-                      key={message.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -5 }}
-                      transition={{ duration: 0.2, ease: "easeOut", delay: index * 0.05 }}
-                    >
+                    <div key={message.id}>
                       <Message from={message.role as "user" | "assistant"}>
                         <MessageContent>
                           <InlineErrorMessage error={msg.error} />
                         </MessageContent>
                       </Message>
-                    </motion.div>
+                    </div>
                   );
                 }
 
@@ -1437,17 +1429,9 @@ function ChatInterfaceContent({
                 } = buildChainOfThoughtSteps(allParts);
 
                 return (
-                  <motion.div
-                    key={message.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -5 }}
-                    transition={{ duration: 0.2, ease: "easeOut", delay: index * 0.05 }}
-                    layout
-                  >
+                  <div key={message.id}>
                     <Message from={message.role as "user" | "assistant"}>
                       <MessageContent>
-                        {/* Thinking UI - shown for any reasoning or tool calls */}
                         {thinkingSteps.length > 0 && (
                           <ChainOfThought
                             steps={thinkingSteps}
@@ -1456,7 +1440,6 @@ function ChatInterfaceContent({
                           />
                         )}
 
-                        {/* Text content */}
                         {textParts.map((part, partIndex) => (
                           <MessageResponse
                             key={`text-${partIndex}`}
@@ -1466,7 +1449,6 @@ function ChatInterfaceContent({
                           </MessageResponse>
                         ))}
 
-                        {/* File attachments */}
                         {fileParts.map((part, partIndex) => (
                           <MessageFile
                             key={`file-${partIndex}`}
@@ -1477,21 +1459,14 @@ function ChatInterfaceContent({
                         ))}
                       </MessageContent>
                     </Message>
-                  </motion.div>
+                  </div>
                 );
               })}
               {isLoading && messages[messages.length - 1]?.role === "user" && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -5 }}
-                  transition={{ duration: 0.15, ease: "easeOut" }}
-                >
-                  <LoadingIndicator />
-                </motion.div>
+                <LoadingIndicator />
               )}
               {/* Note: Errors are now shown inline as messages via InlineErrorMessage */}
-            </AnimatePresence>
+            </>
           )}
         </ConversationContent>
       </Conversation>

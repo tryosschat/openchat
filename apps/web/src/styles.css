@@ -154,6 +154,23 @@
   overflow: hidden !important;
 }
 
+/* Ensure list markers display correctly in prose content */
+.prose ul {
+  list-style-type: disc;
+}
+.prose ol {
+  list-style-type: decimal;
+}
+.prose ul ul {
+  list-style-type: circle;
+}
+.prose ul ul ul {
+  list-style-type: square;
+}
+.prose li::marker {
+  color: var(--muted-foreground);
+}
+
 @layer utilities {
   .scrollbar-none {
     -ms-overflow-style: none;
