@@ -13,6 +13,7 @@ import { createContext, useContext } from "react";
 import { Streamdown } from "streamdown";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { useSmoothText } from "@/hooks/use-smooth-text";
 
 // ============================================================================
 // Context
@@ -95,6 +96,7 @@ export interface MessageResponseProps extends ComponentProps<"div"> {
 export const MessageResponse = ({ children, className, isStreaming, ...props }: MessageResponseProps) => {
   const { from } = useMessage();
   const isUser = from === "user";
+  const smoothText = useSmoothText(children || "", !!isStreaming);
 
   if (isUser) {
     return (
@@ -106,6 +108,8 @@ export const MessageResponse = ({ children, className, isStreaming, ...props }: 
       </div>
     );
   }
+
+  const displayText = smoothText;
 
   return (
     <div
@@ -128,7 +132,7 @@ export const MessageResponse = ({ children, className, isStreaming, ...props }: 
       )}
       {...props}
     >
-      <Streamdown>{children || ""}</Streamdown>
+      <Streamdown>{displayText}</Streamdown>
     </div>
   );
 };

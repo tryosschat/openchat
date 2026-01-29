@@ -61,6 +61,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 // Note: Using details/summary instead of Collapsible for now
 import { usePersistentChat } from "@/hooks/use-persistent-chat";
+import { useSmoothText } from "@/hooks/use-smooth-text";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -419,7 +420,11 @@ function ChainOfThought({
   );
 }
 
-// Individual step item component
+function SmoothReasoningContent({ content, isActive }: { content: string; isActive: boolean }) {
+  const smoothContent = useSmoothText(content, isActive);
+  return <Streamdown>{smoothContent}</Streamdown>;
+}
+
 function ChainOfThoughtStepItem({ step }: { step: ChainOfThoughtStep }) {
   // Tool steps with output start expanded, reasoning steps follow streaming state
   const [isExpanded, setIsExpanded] = useState(
@@ -523,7 +528,6 @@ function ChainOfThoughtStepItem({ step }: { step: ChainOfThoughtStep }) {
         )}
       </button>
 
-      {/* Expandable reasoning content */}
       {isExpanded && step.type === "reasoning" && step.content && (
         <div className="mt-2 ml-9">
           <div
@@ -537,7 +541,7 @@ function ChainOfThoughtStepItem({ step }: { step: ChainOfThoughtStep }) {
               "max-h-[200px] overflow-y-auto",
             )}
           >
-            <Streamdown>{step.content}</Streamdown>
+            <SmoothReasoningContent content={step.content} isActive={step.status === "active"} />
           </div>
         </div>
       )}
