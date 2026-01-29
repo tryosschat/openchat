@@ -1115,12 +1115,15 @@ export const PromptInputSpeechButton = ({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   useEffect(() => {
-    if (
-      typeof window !== "undefined" &&
-      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)
-    ) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const speechRecognition = new SpeechRecognition();
+    if (typeof window === "undefined") return;
+
+    // Check for SpeechRecognition APIs (standard or webkit-prefixed)
+    // SpeechRecognition may not be available in all browsers, despite TypeScript definitions
+    /* eslint-disable @typescript-eslint/no-unnecessary-condition */
+    const SpeechRecognitionClass = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (SpeechRecognitionClass) {
+      /* eslint-enable @typescript-eslint/no-unnecessary-condition */
+      const speechRecognition = new SpeechRecognitionClass();
 
       speechRecognition.continuous = true;
       speechRecognition.interimResults = true;
@@ -1134,7 +1137,7 @@ export const PromptInputSpeechButton = ({
         setIsListening(false);
       };
 
-      speechRecognition.onresult = (event) => {
+      speechRecognition.onresult = (event: SpeechRecognitionEvent) => {
         let finalTranscript = "";
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -1155,7 +1158,7 @@ export const PromptInputSpeechButton = ({
         }
       };
 
-      speechRecognition.onerror = (event) => {
+      speechRecognition.onerror = (event: SpeechRecognitionErrorEvent) => {
         console.error("Speech recognition error:", event.error);
         setIsListening(false);
       };

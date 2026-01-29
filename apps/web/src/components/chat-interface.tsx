@@ -52,8 +52,9 @@ import type { UIDataTypes, UIMessagePart, UITools } from "ai";
 import type {PromptInputMessage} from "./ai-elements/prompt-input";
 import type {ReasoningEffort} from "@/stores/model";
 import { cn } from "@/lib/utils";
-import {  useModelStore, useModels, getModelById, getModelCapabilities } from "@/stores/model";
+import { useModelStore, useModels, getModelById, getModelCapabilities } from "@/stores/model";
 import { useWebSearch } from "@/stores/provider";
+import { usePromptDraft } from "@/hooks/use-prompt-draft";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -365,7 +366,6 @@ function ChainOfThought({
       hasAutoCollapsedRef.current = false;
     } else if (
       wasStreamingRef.current &&
-      !isStreaming &&
       hasTextContent &&
       !hasAutoCollapsedRef.current
     ) {
@@ -1248,6 +1248,7 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
   return (
     <PromptInputProvider>
       <ChatInterfaceContent
+        chatId={chatId ?? null}
         messages={messages}
         isLoading={isLoading}
         isNewChat={isNewChat}
@@ -1262,6 +1263,7 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
 
 // Inner content component that has access to PromptInputProvider context
 interface ChatInterfaceContentProps {
+  chatId: string | null;
   messages: Array<{
     id: string;
     role: string;
@@ -1276,6 +1278,7 @@ interface ChatInterfaceContentProps {
 }
 
 function ChatInterfaceContent({
+  chatId,
   messages,
   isLoading,
   isNewChat,
@@ -1285,6 +1288,12 @@ function ChatInterfaceContent({
   textareaRef,
 }: ChatInterfaceContentProps) {
   const controller = usePromptInputController();
+
+  // Persist prompt drafts to localStorage (per-chat, debounced, non-annoying)
+  const { clearDraft } = usePromptDraft({
+    chatId,
+    textInputController: controller.textInput,
+  });
 
   // Cmd+L / Ctrl+L keybind to toggle focus on prompt input
   useEffect(() => {
@@ -1324,6 +1333,17 @@ function ChatInterfaceContent({
       }, 0);
     },
     [controller.textInput, textareaRef],
+  );
+
+  // Wrap handleSubmit to clear the draft after successful submission
+  const handleSubmitWithDraftClear = useCallback(
+    async (message: PromptInputMessage) => {
+      // Use .then() to only clear draft on success, preserving draft on errors for retry
+      await handleSubmit(message).then(() => {
+        clearDraft();
+      });
+    },
+    [handleSubmit, clearDraft],
   );
 
   return (
@@ -1479,7 +1499,7 @@ function ChatInterfaceContent({
       <div className="px-2 md:px-4 pt-2 md:pt-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:pb-4">
         <div className="mx-auto max-w-3xl">
           <PremiumPromptInputInner
-            onSubmit={handleSubmit}
+            onSubmit={handleSubmitWithDraftClear}
             isLoading={isLoading}
             onStop={stop}
             textareaRef={textareaRef}
