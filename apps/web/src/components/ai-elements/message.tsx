@@ -117,7 +117,7 @@ export const MessageResponse = ({ children, className, isStreaming, ...props }: 
         "prose-h2:text-lg prose-h2:mt-5 prose-h2:mb-2",
         "prose-h3:text-base prose-h3:mt-4 prose-h3:mb-2",
         "prose-li:text-[15px] prose-li:leading-relaxed prose-li:text-foreground/90 prose-li:my-1",
-        "prose-ul:my-3 prose-ol:my-3 prose-ul:pl-6 prose-ol:pl-6 prose-ul:list-disc prose-ol:list-decimal",
+        "prose-ul:my-3 prose-ol:my-3 prose-ul:pl-8 prose-ol:pl-8 prose-ul:list-disc prose-ol:list-decimal",
         "prose-code:text-sm prose-code:font-medium prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none",
         "prose-pre:bg-muted prose-pre:border prose-pre:border-border/50 prose-pre:rounded-lg prose-pre:my-4",
         "prose-a:text-primary prose-a:no-underline hover:prose-a:underline",
@@ -129,12 +129,6 @@ export const MessageResponse = ({ children, className, isStreaming, ...props }: 
       {...props}
     >
       <Streamdown>{children || ""}</Streamdown>
-      {isStreaming && (
-        <span
-          className="inline-block w-[3px] h-[1.1em] bg-foreground/70 rounded-sm ml-0.5 align-text-bottom animate-pulse"
-          aria-hidden="true"
-        />
-      )}
     </div>
   );
 };
