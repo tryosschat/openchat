@@ -17,6 +17,7 @@ import type * as env from "../env.js";
 import type * as files from "../files.js";
 import type * as http from "../http.js";
 import type * as lib_batchFileUrls from "../lib/batchFileUrls.js";
+import type * as lib_billingUtils from "../lib/billingUtils.js";
 import type * as lib_dbStats from "../lib/dbStats.js";
 import type * as lib_logger from "../lib/logger.js";
 import type * as lib_profiles from "../lib/profiles.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   files: typeof files;
   http: typeof http;
   "lib/batchFileUrls": typeof lib_batchFileUrls;
+  "lib/billingUtils": typeof lib_billingUtils;
   "lib/dbStats": typeof lib_dbStats;
   "lib/logger": typeof lib_logger;
   "lib/profiles": typeof lib_profiles;
