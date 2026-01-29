@@ -3,8 +3,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { Link, createFileRoute } from "@tanstack/react-router";
-import { signInWithGitHub, signInWithVercel } from "@/lib/auth-client";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { signInWithGitHub, signInWithVercel, useAuth } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { env } from "@/lib/env";
@@ -159,9 +159,18 @@ let cacheTimestamp = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function SignInPage() {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading } = useAuth();
   const [isGitHubLoading, setIsGitHubLoading] = useState(false);
   const [isVercelLoading, setIsVercelLoading] = useState(false);
   const [stats, setStats] = useState<PublicStats | null>(cachedStats);
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!loading && isAuthenticated) {
+      navigate({ to: "/" });
+    }
+  }, [loading, isAuthenticated, navigate]);
 
   // Fetch real stats from backend (cached)
   useEffect(() => {
@@ -215,7 +224,7 @@ function SignInPage() {
   };
 
   return (
-    <div className="grid min-h-svh lg:grid-cols-2">
+    <div className="grid min-h-svh lg:grid-cols-2 overflow-hidden">
       {/* Left Column - Sign In Form */}
       <div className="flex flex-col gap-4 p-6 md:p-10">
         <div className="flex justify-center gap-2 md:justify-start">
