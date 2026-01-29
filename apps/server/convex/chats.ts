@@ -193,6 +193,104 @@ export const remove = mutation({
 	},
 });
 
+// Maximum number of chats that can be deleted in a single bulk operation
+const MAX_BULK_DELETE_SIZE = 50;
+
+export const removeBulk = mutation({
+	args: {
+		chatIds: v.array(v.id("chats")),
+		userId: v.id("users"),
+	},
+	returns: v.object({
+		ok: v.boolean(),
+		deleted: v.number(),
+		failed: v.number(),
+	}),
+	handler: async (ctx, args) => {
+		// Validate bulk size to prevent abuse
+		if (args.chatIds.length === 0) {
+			return { ok: true, deleted: 0, failed: 0 };
+		}
+
+		if (args.chatIds.length > MAX_BULK_DELETE_SIZE) {
+			throw new Error(`Cannot delete more than ${MAX_BULK_DELETE_SIZE} chats at once`);
+		}
+
+		// Rate limit: consume one token per chat being deleted
+		const { ok, retryAfter } = await rateLimiter.limit(ctx, "chatBulkDelete", {
+			key: args.userId,
+			count: args.chatIds.length,
+		});
+
+		if (!ok) {
+			throwRateLimitError("bulk deletions", retryAfter);
+		}
+
+		const now = Date.now();
+		let deleted = 0;
+		let failed = 0;
+		let totalMessages = 0;
+
+		// First pass: validate all chats and collect valid ones
+		const validChats: Array<{ chatId: Id<"chats"> }> = [];
+		for (const chatId of args.chatIds) {
+			const chat = await ctx.db.get(chatId);
+
+			// Skip if chat doesn't exist, doesn't belong to user, or is already deleted
+			if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+				failed++;
+				continue;
+			}
+
+			validChats.push({ chatId });
+		}
+
+		// Second pass: fetch all messages for valid chats in parallel
+		const messagesByChat = await Promise.all(
+			validChats.map(async ({ chatId }) => {
+				const messages = await ctx.db
+					.query("messages")
+					.withIndex("by_chat_not_deleted", (q) =>
+						q.eq("chatId", chatId).eq("deletedAt", undefined)
+					)
+					.collect();
+				return { chatId, messages };
+			})
+		);
+
+		// Third pass: soft-delete all messages and chats
+		for (const { chatId, messages } of messagesByChat) {
+			// Soft-delete all messages for this chat
+			await Promise.all(
+				messages.map((message) =>
+					ctx.db.patch(message._id, {
+						deletedAt: now,
+					}),
+				),
+			);
+
+			// Soft-delete the chat
+			await ctx.db.patch(chatId, {
+				deletedAt: now,
+				messageCount: 0,
+			});
+
+			deleted++;
+			totalMessages += messages.length;
+		}
+
+		// Update stats
+		if (deleted > 0) {
+			await incrementStat(ctx, STAT_KEYS.CHATS_SOFT_DELETED, deleted);
+		}
+		if (totalMessages > 0) {
+			await incrementStat(ctx, STAT_KEYS.MESSAGES_SOFT_DELETED, totalMessages);
+		}
+
+		return { ok: deleted > 0, deleted, failed };
+	},
+});
+
 export async function assertOwnsChat(
 	ctx: MutationCtx | QueryCtx,
 	chatId: Id<"chats">,
@@ -308,90 +406,6 @@ const TITLE_STYLE_PROMPTS: Record<"short" | "standard" | "long", string> = {
 	long: "Use 7-10 words. Prefer numerals (e.g., 4-day) when present.",
 };
 
-const TITLE_WORD_LIMITS: Record<"short" | "standard" | "long", number> = {
-	short: 4,
-	standard: 6,
-	long: 10,
-};
-
-const TITLE_STOPWORDS = new Set([
-	"about",
-	"after",
-	"also",
-	"and",
-	"are",
-	"ask",
-	"before",
-	"brainstorm",
-	"build",
-	"chat",
-	"create",
-	"day",
-	"days",
-	"discussion",
-	"draft",
-	"for",
-	"from",
-	"guide",
-	"help",
-	"how",
-	"ideas",
-	"into",
-	"make",
-	"meeting",
-	"notes",
-	"overview",
-	"plan",
-	"planning",
-	"project",
-	"session",
-	"summary",
-	"task",
-	"tasks",
-	"the",
-	"this",
-	"topic",
-	"with",
-]);
-
-function normalizeTitleTokens(text: string): Array<string> {
-	return text
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, " ")
-		.trim()
-		.split(/\s+/)
-		.filter((token) => token.length > 2 && !TITLE_STOPWORDS.has(token));
-}
-
-function hasSeedOverlap(seedText: string, title: string): boolean {
-	const seedTokens = new Set(normalizeTitleTokens(seedText));
-	if (seedTokens.size === 0) return false;
-
-	const titleTokens = new Set(normalizeTitleTokens(title));
-	if (titleTokens.size === 0) return false;
-
-	let overlapCount = 0;
-	for (const token of titleTokens) {
-		if (seedTokens.has(token)) {
-			overlapCount++;
-		}
-	}
-	if (overlapCount === 0) return false;
-
-	const overlapRatio = overlapCount / Math.max(seedTokens.size, titleTokens.size);
-	return overlapCount >= 2 || overlapRatio >= 0.35;
-}
-
-function buildFallbackTitle(
-	seedText: string,
-	length: "short" | "standard" | "long",
-): string {
-	const normalized = seedText.replace(/[\n\r\t]+/g, " ").replace(/\s+/g, " ").trim();
-	const words = normalized.split(" ").filter(Boolean);
-	const clipped = words.slice(0, TITLE_WORD_LIMITS[length]).join(" ");
-	return sanitizeTitle(clipped, TITLE_MAX_LENGTH);
-}
-
 export const generateTitle = action({
 	args: {
 		userId: v.id("users"),
@@ -461,14 +475,7 @@ export const generateTitle = action({
 			}
 
 			const sanitizedTitle = sanitizeTitle(title, TITLE_MAX_LENGTH);
-			if (!sanitizedTitle) return null;
-
-			if (!hasSeedOverlap(seedText, sanitizedTitle)) {
-				const fallbackTitle = buildFallbackTitle(seedText, args.length);
-				return fallbackTitle || null;
-			}
-
-			return sanitizedTitle;
+			return sanitizedTitle || null;
 		} catch (error) {
 			console.warn("[Chat Title] Failed to generate title:", error);
 			return null;

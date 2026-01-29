@@ -34,11 +34,7 @@ const userWithProfileDoc = v.object({
 	hasProfile: v.boolean(),
 });
 
-const DAILY_AI_LIMIT_CENTS = 10;
-
-function getCurrentDateKey(): string {
-	return new Date().toISOString().split("T")[0];
-}
+import { DAILY_AI_LIMIT_CENTS, getCurrentDateKey } from "./lib/billingUtils";
 
 export const ensure = mutation({
 	args: {
@@ -258,6 +254,9 @@ export const getById = query({
 	},
 });
 
+// Maximum single-request usage cap to guard against corrupted cost data
+const MAX_SINGLE_REQUEST_CENTS = DAILY_AI_LIMIT_CENTS * 10; // 100¢ = $1
+
 export const incrementAiUsage = internalMutation({
 	args: {
 		userId: v.id("users"),
@@ -266,26 +265,48 @@ export const incrementAiUsage = internalMutation({
 	returns: v.object({
 		usedCents: v.number(),
 		remainingCents: v.number(),
+		overLimit: v.boolean(),
 	}),
 	handler: async (ctx, args) => {
 		if (args.usageCents <= 0) {
 			return {
 				usedCents: 0,
 				remainingCents: DAILY_AI_LIMIT_CENTS,
+				overLimit: false,
+			};
+		}
+
+		// Sanity cap: reject suspiciously high usage values
+		if (args.usageCents > MAX_SINGLE_REQUEST_CENTS) {
+			console.error(
+				`[Usage] Rejected suspiciously high usage: ${args.usageCents}¢ for user ${args.userId}`,
+			);
+			return {
+				usedCents: 0,
+				remainingCents: DAILY_AI_LIMIT_CENTS,
+				overLimit: false,
 			};
 		}
 
 		const user = await ctx.db.get(args.userId);
 		if (!user) {
+			console.warn(
+				`[Usage] User not found for usage recording: ${args.userId}, usage: ${args.usageCents}¢`,
+			);
 			return {
 				usedCents: 0,
 				remainingCents: DAILY_AI_LIMIT_CENTS,
+				overLimit: false,
 			};
 		}
 
 		const currentDate = getCurrentDateKey();
 		const previousCents =
 			user.aiUsageDate === currentDate ? (user.aiUsageCents ?? 0) : 0;
+
+		// Second line of defense: if already over limit, still record but flag it
+		const alreadyOverLimit = previousCents >= DAILY_AI_LIMIT_CENTS;
+
 		const nextCents = Math.max(0, previousCents + args.usageCents);
 
 		await ctx.db.patch(args.userId, {
@@ -297,6 +318,7 @@ export const incrementAiUsage = internalMutation({
 		return {
 			usedCents: nextCents,
 			remainingCents: Math.max(0, DAILY_AI_LIMIT_CENTS - nextCents),
+			overLimit: alreadyOverLimit,
 		};
 	},
 });

@@ -1,106 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation, internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-
-const DAILY_AI_LIMIT_CENTS = 10;
-const FALLBACK_INPUT_COST_PER_MILLION = 1;
-const FALLBACK_OUTPUT_COST_PER_MILLION = 4;
-const CJK_CHAR_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
-
-type UsagePayload = {
-	promptTokens?: number;
-	completionTokens?: number;
-	totalTokens?: number;
-	totalCostUsd?: number;
-};
-
-function getCurrentDateKey(): string {
-	return new Date().toISOString().split("T")[0];
-}
-
-function normalizeUsagePayload(usage: Record<string, unknown>): UsagePayload {
-	const promptTokens =
-		typeof usage.prompt_tokens === "number"
-			? usage.prompt_tokens
-			: typeof usage.promptTokens === "number"
-				? usage.promptTokens
-				: undefined;
-	const completionTokens =
-		typeof usage.completion_tokens === "number"
-			? usage.completion_tokens
-			: typeof usage.completionTokens === "number"
-				? usage.completionTokens
-				: undefined;
-	const totalTokens =
-		typeof usage.total_tokens === "number"
-			? usage.total_tokens
-			: typeof usage.totalTokens === "number"
-				? usage.totalTokens
-				: undefined;
-	const totalCostUsd =
-		typeof usage.total_cost === "number"
-			? usage.total_cost
-			: typeof usage.totalCost === "number"
-				? usage.totalCost
-				: typeof usage.cost === "number"
-					? usage.cost
-					: undefined;
-
-	return { promptTokens, completionTokens, totalTokens, totalCostUsd };
-}
-
-function estimateTokensFromText(text: string): number {
-	if (!text) return 0;
-	const normalized = text.trim();
-	if (!normalized) return 0;
-
-	const wordCount = normalized.split(/\s+/).filter(Boolean).length;
-	const charCount = normalized.replace(/\s+/g, "").length;
-
-	if (CJK_CHAR_REGEX.test(normalized)) {
-		return Math.max(1, charCount);
-	}
-
-	const wordEstimate = wordCount > 0 ? Math.ceil(wordCount * 1.33) : 0;
-	const charEstimate = Math.ceil(charCount / 4);
-	const estimate = Math.max(wordEstimate, charEstimate);
-	return Math.max(1, estimate);
-}
-
-function estimatePromptTokens(messages: Array<{ role: string; content: string }>): number {
-	const combined = messages.map((m) => m.content).join(" ");
-	return estimateTokensFromText(combined);
-}
-
-function roundCents(cents: number): number {
-	if (!Number.isFinite(cents)) return 0;
-	return Math.max(0, Math.round(cents * 10000) / 10000);
-}
-
-function calculateUsageCents(
-	usage: UsagePayload | null,
-	messages: Array<{ role: string; content: string }>,
-	outputText: string,
-): number | null {
-	if (usage?.totalCostUsd !== undefined) {
-		if (Number.isFinite(usage.totalCostUsd) && usage.totalCostUsd > 0) {
-			return roundCents(usage.totalCostUsd * 100);
-		}
-	}
-
-	const promptTokens = usage?.promptTokens ?? estimatePromptTokens(messages);
-	const completionTokens = usage?.completionTokens ?? estimateTokensFromText(outputText);
-
-	if (promptTokens <= 0 && completionTokens <= 0) {
-		return null;
-	}
-
-	const totalUsd =
-		(promptTokens / 1_000_000) * FALLBACK_INPUT_COST_PER_MILLION +
-		(completionTokens / 1_000_000) * FALLBACK_OUTPUT_COST_PER_MILLION;
-
-	return roundCents(totalUsd * 100);
-}
+import {
+	DAILY_AI_LIMIT_CENTS,
+	getCurrentDateKey,
+	normalizeUsagePayload,
+	calculateUsageCents,
+} from "./lib/billingUtils";
+import type { UsagePayload } from "./lib/billingUtils";
 
 export const startStream = mutation({
 	args: {
@@ -138,6 +45,21 @@ export const startStream = mutation({
 				user.aiUsageDate === currentDate ? (user.aiUsageCents ?? 0) : 0;
 			if (usedCents >= DAILY_AI_LIMIT_CENTS) {
 				throw new Error("Daily usage limit reached. Connect your OpenRouter account to continue.");
+			}
+
+			// Prevent concurrent osschat streams per user (TOCTOU mitigation)
+			const runningOsschatJobs = await ctx.db
+				.query("streamJobs")
+				.withIndex("by_user", (q) => q.eq("userId", args.userId).eq("status", "running"))
+				.collect();
+			const pendingOsschatJobs = await ctx.db
+				.query("streamJobs")
+				.withIndex("by_user", (q) => q.eq("userId", args.userId).eq("status", "pending"))
+				.collect();
+			const activeOsschatCount = runningOsschatJobs.filter(j => j.provider === "osschat").length
+				+ pendingOsschatJobs.filter(j => j.provider === "osschat").length;
+			if (activeOsschatCount > 0) {
+				throw new Error("Please wait for your current request to finish before sending another.");
 			}
 		}
 
@@ -436,9 +358,8 @@ export const executeStream = internalAction({
 				signal: controller.signal,
 			});
 
-			clearTimeout(timeoutId);
-
 			if (!response.ok) {
+				clearTimeout(timeoutId);
 				const errorText = await response.text();
 				await ctx.runMutation(internal.backgroundStream.failStream, {
 					jobId: args.jobId,
@@ -449,6 +370,7 @@ export const executeStream = internalAction({
 
 			const reader = response.body?.getReader();
 			if (!reader) {
+				clearTimeout(timeoutId);
 				await ctx.runMutation(internal.backgroundStream.failStream, {
 					jobId: args.jobId,
 					error: "No response body",
@@ -507,6 +429,8 @@ export const executeStream = internalAction({
 				}
 			}
 
+			clearTimeout(timeoutId);
+
 			if (job.provider === "osschat") {
 				const usageCents = calculateUsageCents(
 					usageSummary,
@@ -514,21 +438,26 @@ export const executeStream = internalAction({
 					fullContent,
 				);
 				if (usageCents && usageCents > 0) {
-					try {
-						await ctx.runMutation(internal.users.incrementAiUsage, {
-							userId: job.userId,
-							usageCents,
-						});
-					} catch (error) {
-						console.warn("[BackgroundStream] Failed to record usage, retrying:", error);
+					let recorded = false;
+					for (let attempt = 0; attempt < 2; attempt++) {
 						try {
 							await ctx.runMutation(internal.users.incrementAiUsage, {
 								userId: job.userId,
 								usageCents,
 							});
-						} catch (retryError) {
-							console.error("[BackgroundStream] Usage retry failed:", retryError);
+							recorded = true;
+							break;
+						} catch (error) {
+							console.warn(
+								`[BackgroundStream] Usage record attempt ${attempt + 1} failed:`,
+								error,
+							);
 						}
+					}
+					if (!recorded) {
+						console.error(
+							`[BackgroundStream] UNRECORDED USAGE: userId=${job.userId}, cents=${usageCents}, model=${job.model}, jobId=${args.jobId}`,
+						);
 					}
 				}
 			}
