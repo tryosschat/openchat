@@ -25,17 +25,23 @@ function createConvexTest() {
   return t;
 }
 
+function asExternalId(t: any, externalId: string) {
+	return t.withIdentity({ subject: externalId });
+}
+
 describe('messages.list', () => {
   let t: ReturnType<typeof convexTest>;
   let userId: Id<'users'>;
   let chatId: Id<'chats'>;
+  let externalId: string;
 
   beforeEach(async () => {
     t = createConvexTest();
 
+    externalId = 'test-user';
     userId = await t.run(async (ctx) => {
       return await ctx.db.insert('users', {
-        externalId: 'test-user',
+        externalId,
         email: 'test@example.com',
         name: 'Test User',
         createdAt: Date.now(),
@@ -43,7 +49,7 @@ describe('messages.list', () => {
       });
     });
 
-    const chat = await t.mutation(api.chats.create, {
+    const chat = await asExternalId(t, externalId).mutation(api.chats.create, {
       userId,
       title: 'Test Chat',
     });
@@ -61,22 +67,23 @@ describe('messages.list', () => {
       });
     });
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
 
     expect(messages.length).toBe(1);
     expect(messages[0].content).toBe('Hello');
   });
 
   it('should return empty array for chat with no messages', async () => {
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
 
     expect(messages).toEqual([]);
   });
 
   it('should return empty array when user does not own chat', async () => {
+    const otherExternalId = 'other-user';
     const otherUserId = await t.run(async (ctx) => {
       return await ctx.db.insert('users', {
-        externalId: 'other-user',
+        externalId: otherExternalId,
         email: 'other@example.com',
         name: 'Other User',
         createdAt: Date.now(),
@@ -84,7 +91,7 @@ describe('messages.list', () => {
       });
     });
 
-    const messages = await t.query(api.messages.list, { chatId, userId: otherUserId });
+    const messages = await asExternalId(t, otherExternalId).query(api.messages.list, { chatId, userId: otherUserId });
 
     expect(messages).toEqual([]);
   });
@@ -111,7 +118,7 @@ describe('messages.list', () => {
       });
     });
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
 
     expect(messages.length).toBe(1);
     expect(messages[0].content).toBe('Active');
@@ -142,7 +149,7 @@ describe('messages.list', () => {
       });
     });
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
 
     expect(messages.length).toBe(3);
     expect(messages[0].content).toBe('First');
@@ -162,7 +169,7 @@ describe('messages.list', () => {
       });
     });
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
 
     const msg = messages[0];
     expect(msg).toHaveProperty('_id');
@@ -170,11 +177,11 @@ describe('messages.list', () => {
     expect(msg).toHaveProperty('content');
     expect(msg).toHaveProperty('createdAt');
 
-    // These should be excluded
-    expect(msg).not.toHaveProperty('_creationTime');
-    expect(msg).not.toHaveProperty('chatId');
-    expect(msg).not.toHaveProperty('userId');
-    expect(msg).not.toHaveProperty('status');
+		// These should be excluded
+		expect(msg).not.toHaveProperty('_creationTime');
+		expect(msg).not.toHaveProperty('chatId');
+		expect(msg).not.toHaveProperty('userId');
+		// status is included in the response for streaming/UX purposes
   });
 
   it('should include reasoning content when present', async () => {
@@ -190,7 +197,7 @@ describe('messages.list', () => {
       });
     });
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
 
     expect(messages[0].reasoning).toBe('My reasoning');
     expect(messages[0].thinkingTimeMs).toBe(5000);
@@ -208,7 +215,7 @@ describe('messages.list', () => {
       });
     });
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
 
     expect(messages[0].clientMessageId).toBe('client123');
   });
@@ -218,13 +225,15 @@ describe('messages.send', () => {
   let t: ReturnType<typeof convexTest>;
   let userId: Id<'users'>;
   let chatId: Id<'chats'>;
+  let externalId: string;
 
   beforeEach(async () => {
     t = createConvexTest();
 
+    externalId = 'test-user';
     userId = await t.run(async (ctx) => {
       return await ctx.db.insert('users', {
-        externalId: 'test-user',
+        externalId,
         email: 'test@example.com',
         name: 'Test User',
         createdAt: Date.now(),
@@ -232,7 +241,7 @@ describe('messages.send', () => {
       });
     });
 
-    const chat = await t.mutation(api.chats.create, {
+    const chat = await asExternalId(t, externalId).mutation(api.chats.create, {
       userId,
       title: 'Test Chat',
     });
@@ -240,7 +249,7 @@ describe('messages.send', () => {
   });
 
   it('should send user message', async () => {
-    const result = await t.mutation(api.messages.send, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.send, {
       chatId,
       userId,
       userMessage: {
@@ -251,14 +260,14 @@ describe('messages.send', () => {
     expect(result.ok).toBe(true);
     expect(result.userMessageId).toBeDefined();
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
     expect(messages.length).toBe(1);
     expect(messages[0].content).toBe('Hello');
     expect(messages[0].role).toBe('user');
   });
 
   it('should send both user and assistant messages', async () => {
-    const result = await t.mutation(api.messages.send, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.send, {
       chatId,
       userId,
       userMessage: {
@@ -273,16 +282,17 @@ describe('messages.send', () => {
     expect(result.userMessageId).toBeDefined();
     expect(result.assistantMessageId).toBeDefined();
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
     expect(messages.length).toBe(2);
     expect(messages[0].role).toBe('user');
     expect(messages[1].role).toBe('assistant');
   });
 
   it('should return ok: false when user does not own chat', async () => {
+    const otherExternalId = 'other-user';
     const otherUserId = await t.run(async (ctx) => {
       return await ctx.db.insert('users', {
-        externalId: 'other-user',
+        externalId: otherExternalId,
         email: 'other@example.com',
         name: 'Other User',
         createdAt: Date.now(),
@@ -290,7 +300,7 @@ describe('messages.send', () => {
       });
     });
 
-    const result = await t.mutation(api.messages.send, {
+    const result = await asExternalId(t, otherExternalId).mutation(api.messages.send, {
       chatId,
       userId: otherUserId,
       userMessage: {
@@ -303,7 +313,7 @@ describe('messages.send', () => {
 
   it('should use custom timestamp when provided', async () => {
     const customTime = 123456789;
-    await t.mutation(api.messages.send, {
+    await asExternalId(t, externalId).mutation(api.messages.send, {
       chatId,
       userId,
       userMessage: {
@@ -312,13 +322,13 @@ describe('messages.send', () => {
       },
     });
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
     expect(messages[0].createdAt).toBe(customTime);
   });
 
   it('should update chat timestamps', async () => {
     const before = Date.now();
-    await t.mutation(api.messages.send, {
+    await asExternalId(t, externalId).mutation(api.messages.send, {
       chatId,
       userId,
       userMessage: {
@@ -334,7 +344,7 @@ describe('messages.send', () => {
   });
 
   it('should store clientMessageId', async () => {
-    await t.mutation(api.messages.send, {
+    await asExternalId(t, externalId).mutation(api.messages.send, {
       chatId,
       userId,
       userMessage: {
@@ -343,7 +353,7 @@ describe('messages.send', () => {
       },
     });
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
     expect(messages[0].clientMessageId).toBe('client123');
   });
 });
@@ -352,13 +362,15 @@ describe('messages.streamUpsert', () => {
   let t: ReturnType<typeof convexTest>;
   let userId: Id<'users'>;
   let chatId: Id<'chats'>;
+  let externalId: string;
 
   beforeEach(async () => {
     t = createConvexTest();
 
+    externalId = 'test-user';
     userId = await t.run(async (ctx) => {
       return await ctx.db.insert('users', {
-        externalId: 'test-user',
+        externalId,
         email: 'test@example.com',
         name: 'Test User',
         createdAt: Date.now(),
@@ -366,7 +378,7 @@ describe('messages.streamUpsert', () => {
       });
     });
 
-    const chat = await t.mutation(api.chats.create, {
+    const chat = await asExternalId(t, externalId).mutation(api.chats.create, {
       userId,
       title: 'Test Chat',
     });
@@ -374,7 +386,7 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should create new message', async () => {
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'assistant',
@@ -384,20 +396,20 @@ describe('messages.streamUpsert', () => {
     expect(result.ok).toBe(true);
     expect(result.messageId).toBeDefined();
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
     expect(messages.length).toBe(1);
     expect(messages[0].content).toBe('Streaming...');
   });
 
   it('should update existing message', async () => {
-    const initial = await t.mutation(api.messages.streamUpsert, {
+    const initial = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'assistant',
       content: 'Partial...',
     });
 
-    const updated = await t.mutation(api.messages.streamUpsert, {
+    const updated = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       messageId: initial.messageId,
@@ -407,13 +419,13 @@ describe('messages.streamUpsert', () => {
 
     expect(updated.messageId).toBe(initial.messageId);
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
     expect(messages.length).toBe(1);
     expect(messages[0].content).toBe('Complete response');
   });
 
   it('should default status to streaming', async () => {
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'assistant',
@@ -425,7 +437,7 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should accept custom status', async () => {
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'assistant',
@@ -438,7 +450,7 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should store reasoning content', async () => {
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'assistant',
@@ -454,10 +466,10 @@ describe('messages.streamUpsert', () => {
 
   it('should reject invalid role', async () => {
     await expect(
-      t.mutation(api.messages.streamUpsert, {
+      asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
         chatId,
         userId,
-        role: 'system' as any,
+        role: 'system',
         content: 'Test',
       })
     ).rejects.toThrow('Invalid message role');
@@ -467,7 +479,7 @@ describe('messages.streamUpsert', () => {
     const largeContent = 'a'.repeat(101 * 1024); // 101KB
 
     await expect(
-      t.mutation(api.messages.streamUpsert, {
+      asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
         chatId,
         userId,
         role: 'user',
@@ -479,7 +491,7 @@ describe('messages.streamUpsert', () => {
   it('should allow content up to 100KB', async () => {
     const maxContent = 'a'.repeat(100 * 1024);
 
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'user',
@@ -496,7 +508,7 @@ describe('messages.streamUpsert', () => {
     });
 
     await expect(
-      t.mutation(api.messages.streamUpsert, {
+      asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
         chatId,
         userId,
         role: 'user',
@@ -506,14 +518,14 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should increment message count on new message', async () => {
-    await t.mutation(api.messages.streamUpsert, {
+    await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'user',
       content: 'Message 1',
     });
 
-    await t.mutation(api.messages.streamUpsert, {
+    await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'assistant',
@@ -525,7 +537,7 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should not increment count when updating existing message', async () => {
-    const initial = await t.mutation(api.messages.streamUpsert, {
+    const initial = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'assistant',
@@ -535,7 +547,7 @@ describe('messages.streamUpsert', () => {
     const chatBefore = await t.run(async (ctx) => await ctx.db.get(chatId));
     const countBefore = chatBefore?.messageCount || 0;
 
-    await t.mutation(api.messages.streamUpsert, {
+    await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       messageId: initial.messageId,
@@ -548,7 +560,7 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should reuse message by clientMessageId', async () => {
-    const first = await t.mutation(api.messages.streamUpsert, {
+    const first = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       clientMessageId: 'client123',
@@ -556,7 +568,7 @@ describe('messages.streamUpsert', () => {
       content: 'Original',
     });
 
-    const second = await t.mutation(api.messages.streamUpsert, {
+    const second = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       clientMessageId: 'client123',
@@ -566,13 +578,13 @@ describe('messages.streamUpsert', () => {
 
     expect(second.messageId).toBe(first.messageId);
 
-    const messages = await t.query(api.messages.list, { chatId, userId });
+    const messages = await asExternalId(t, externalId).query(api.messages.list, { chatId, userId });
     expect(messages.length).toBe(1);
     expect(messages[0].content).toBe('Updated');
   });
 
   it('should handle empty content', async () => {
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'user',
@@ -583,7 +595,7 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should handle whitespace-only content', async () => {
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'user',
@@ -599,7 +611,7 @@ describe('messages.streamUpsert', () => {
     const content = unicodeChar.repeat(26 * 1024); // ~104KB
 
     await expect(
-      t.mutation(api.messages.streamUpsert, {
+      asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
         chatId,
         userId,
         role: 'user',
@@ -611,7 +623,7 @@ describe('messages.streamUpsert', () => {
   it('should update chat timestamps when status is completed', async () => {
     const before = Date.now();
 
-    await t.mutation(api.messages.streamUpsert, {
+    await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'assistant',
@@ -627,9 +639,10 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should return ok: false when user does not own chat', async () => {
+    const otherExternalId = 'other-user';
     const otherUserId = await t.run(async (ctx) => {
       return await ctx.db.insert('users', {
-        externalId: 'other-user',
+        externalId: otherExternalId,
         email: 'other@example.com',
         name: 'Other User',
         createdAt: Date.now(),
@@ -637,7 +650,7 @@ describe('messages.streamUpsert', () => {
       });
     });
 
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, otherExternalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId: otherUserId,
       role: 'assistant',
@@ -648,7 +661,7 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should accept user role', async () => {
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'user',
@@ -662,7 +675,7 @@ describe('messages.streamUpsert', () => {
   });
 
   it('should accept assistant role', async () => {
-    const result = await t.mutation(api.messages.streamUpsert, {
+    const result = await asExternalId(t, externalId).mutation(api.messages.streamUpsert, {
       chatId,
       userId,
       role: 'assistant',

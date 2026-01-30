@@ -20,7 +20,6 @@ import type {MouseEvent} from "react";
 import type { Id } from "@server/convex/_generated/dataModel";
 import { useAuth } from "@/lib/auth-client";
 import { convexClient } from "@/lib/convex";
-import { useOpenRouterKey } from "@/stores/openrouter";
 import { useProviderStore } from "@/stores/provider";
 import { useChatTitleStore } from "@/stores/chat-title";
 import { useBulkSelectionStore } from "@/stores/bulk-selection";
@@ -231,7 +230,6 @@ export function AppSidebar() {
   const { user } = useAuth();
   const { open, isMobile, setOpen } = useSidebar();
   const navigate = useNavigate();
-  const { apiKey } = useOpenRouterKey();
   const activeProvider = useProviderStore((s) => s.activeProvider);
   const chatTitleLength = useChatTitleStore((s) => s.length);
   const confirmDelete = useChatTitleStore((s) => s.confirmDelete);
@@ -415,13 +413,12 @@ export function AppSidebar() {
         return;
       }
 
-      const generatedTitle = await convexClient.action(api.chats.generateTitle, {
-        userId: convexUser._id,
-        seedText: seedText.trim().slice(0, 300),
-        length: chatTitleLength,
-        provider: activeProvider,
-        apiKey: activeProvider === "openrouter" && apiKey ? apiKey : undefined,
-      });
+		const generatedTitle = await convexClient.action(api.chats.generateTitle, {
+			userId: convexUser._id,
+			seedText: seedText.trim().slice(0, 300),
+			length: chatTitleLength,
+			provider: activeProvider,
+		});
 
       if (!generatedTitle) {
         toast.error("Unable to generate a new chat name.");

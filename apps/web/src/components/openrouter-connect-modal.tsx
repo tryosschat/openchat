@@ -5,8 +5,6 @@
  * Used from Settings page when user wants to connect their own API key.
  */
 
-"use client";
-
 import { useEffect, useState } from "react";
 import { CheckIcon, ExternalLinkIcon, KeyIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";

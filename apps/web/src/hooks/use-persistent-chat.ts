@@ -6,7 +6,6 @@ import type { Id } from "@server/convex/_generated/dataModel";
 import type { UIMessage } from "ai";
 import { useAuth } from "@/lib/auth-client";
 import { useModelStore } from "@/stores/model";
-import { useOpenRouterKey } from "@/stores/openrouter";
 import { useProviderStore } from "@/stores/provider";
 import { useChatTitleStore } from "@/stores/chat-title";
 import { useStreamStore } from "@/stores/stream";
@@ -101,7 +100,6 @@ export function usePersistentChat({
 	const isMountedRef = useRef(true);
 	const { user } = useAuth();
 	const { selectedModelId, reasoningEffort, maxSteps } = useModelStore();
-	const { apiKey } = useOpenRouterKey();
 	const activeProvider = useProviderStore((s) => s.activeProvider);
 	const webSearchEnabled = useProviderStore((s) => s.webSearchEnabled);
 	const chatTitleLength = useChatTitleStore((s) => s.length);
@@ -195,7 +193,7 @@ export function usePersistentChat({
 						const idx = prev.findIndex((m) => m.id === streamId);
 						if (idx < 0) return prev;
 						const msg = prev[idx];
-						const hasStreamingReasoning = msg.parts?.some(
+						const hasStreamingReasoning = msg.parts.some(
 							(p) => hasStreamingState(p)
 						);
 						if (!hasStreamingReasoning) return prev;
@@ -263,8 +261,8 @@ export function usePersistentChat({
 				const idx = prev.findIndex((m) => m.id === streamId);
 				if (idx < 0) return prev;
 
-				const currentText = prev[idx].parts?.find(p => p.type === "text");
-				const currentReasoning = prev[idx].parts?.find(p => p.type === "reasoning");
+					const currentText = prev[idx].parts.find(p => p.type === "text");
+					const currentReasoning = prev[idx].parts.find(p => p.type === "reasoning");
 				const textSame = currentText && "text" in currentText && currentText.text === jobContent;
 				const reasoningSame = currentReasoning && getReasoningText(currentReasoning) === jobReasoning;
 				if (textSame && (reasoningSame || (!jobReasoning && !currentReasoning))) {
@@ -359,7 +357,6 @@ export function usePersistentChat({
 					messageId: assistantMsgId,
 					model: selectedModelId,
 					provider: activeProvider,
-					apiKey: activeProvider === "openrouter" && apiKey ? apiKey : undefined,
 					messages: allMsgs,
 					options: {
 						reasoningEffort,
@@ -372,7 +369,7 @@ export function usePersistentChat({
 				streamingRef.current = { id: assistantMsgId, content: "", reasoning: "" };
 
 				const initialParts: UIMessage["parts"] = [];
-				if (reasoningEffort && reasoningEffort !== "none") {
+				if (reasoningEffort !== "none") {
 					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
 				initialParts.push(reasoningPart as UIMessage["parts"][number]);
 				}
@@ -396,7 +393,6 @@ export function usePersistentChat({
 										seedText,
 										length: chatTitleLength,
 										provider: activeProvider,
-										apiKey: activeProvider === "openrouter" && apiKey ? apiKey : undefined,
 									});
 
 									if (generatedTitle) {
@@ -467,7 +463,7 @@ export function usePersistentChat({
 		},
 		[
 			convexUserId, isUserLoading, user?.id, chatId, messages, selectedModelId,
-			activeProvider, apiKey, webSearchEnabled, reasoningEffort, maxSteps, chatTitleLength,
+			activeProvider, webSearchEnabled, reasoningEffort, maxSteps, chatTitleLength,
 			setTitleGenerating, createChat, sendMessages, updateTitle, generateTitle, startBackgroundStream,
 		],
 	);

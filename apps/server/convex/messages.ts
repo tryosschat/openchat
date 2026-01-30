@@ -6,6 +6,7 @@ import { v } from "convex/values";
 import { incrementStat, STAT_KEYS } from "./lib/dbStats";
 import { rateLimiter } from "./lib/rateLimiter";
 import { throwRateLimitError } from "./lib/rateLimitUtils";
+import { requireAuthUserId } from "./lib/auth";
 
 // Tool invocation validator - DEPRECATED: used for legacy format
 const toolInvocationValidator = v.object({
@@ -95,7 +96,8 @@ export const list = query({
 	},
 	returns: v.array(messageDoc),
 	handler: async (ctx, args) => {
-		const chat = await assertOwnsChat(ctx, args.chatId, args.userId);
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const chat = await assertOwnsChat(ctx, args.chatId, userId);
 		if (!chat) return [];
 		// PERFORMANCE OPTIMIZATION: Use by_chat_not_deleted index to filter soft-deleted messages at index level
 		// This is much faster than loading all messages and filtering in JavaScript
@@ -196,7 +198,8 @@ export const getFirstUserMessage = query({
 	},
 	returns: v.union(v.string(), v.null()),
 	handler: async (ctx, args) => {
-		const chat = await assertOwnsChat(ctx, args.chatId, args.userId);
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const chat = await assertOwnsChat(ctx, args.chatId, userId);
 		if (!chat) return null;
 
 		const message = await ctx.db
@@ -223,7 +226,8 @@ export const getActiveStream = query({
 	},
 	returns: v.union(v.string(), v.null()),
 	handler: async (ctx, args) => {
-		const chat = await assertOwnsChat(ctx, args.chatId, args.userId);
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const chat = await assertOwnsChat(ctx, args.chatId, userId);
 		if (!chat) return null;
 
 		// Find the most recent message with status="streaming"
@@ -286,16 +290,17 @@ export const send = mutation({
 		assistantMessageId: v.optional(v.id("messages")),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limit message sending
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "messageSend", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
 			throwRateLimitError("messages sent", retryAfter);
 		}
 
-		const chat = await assertOwnsChat(ctx, args.chatId, args.userId);
+		const chat = await assertOwnsChat(ctx, args.chatId, userId);
 		if (!chat) {
 			return { ok: false as const, userMessageId: undefined, assistantMessageId: undefined };
 		}
@@ -308,7 +313,7 @@ export const send = mutation({
 			createdAt: userCreatedAt,
 			clientMessageId: args.userMessage.clientMessageId,
 			status: "completed",
-			userId: args.userId,
+			userId,
 			attachments: args.userMessage.attachments?.map(a => ({
 				...a,
 				uploadedAt: Date.now(),
@@ -329,7 +334,7 @@ export const send = mutation({
 				createdAt: assistantCreatedAt,
 				clientMessageId: args.assistantMessage.clientMessageId,
 				status: "completed",
-				userId: args.userId,
+				userId,
 				error: args.assistantMessage.error,
 				messageType: args.assistantMessage.messageType,
 			});
@@ -380,16 +385,17 @@ export const streamUpsert = mutation({
 		messageId: v.optional(v.id("messages")),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limit stream updates (high limit for AI streaming)
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "messageStreamUpsert", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
 			throwRateLimitError("stream updates", retryAfter);
 		}
 
-		const chat = await assertOwnsChat(ctx, args.chatId, args.userId);
+		const chat = await assertOwnsChat(ctx, args.chatId, userId);
 		if (!chat) {
 			return { ok: false as const, messageId: undefined };
 		}
@@ -406,7 +412,7 @@ export const streamUpsert = mutation({
 			status: args.status ?? "streaming",
 			clientMessageId: args.clientMessageId,
 			overrideId: args.messageId ?? undefined,
-			userId: args.userId,
+			userId,
 			attachments: args.attachments,
 		});
 

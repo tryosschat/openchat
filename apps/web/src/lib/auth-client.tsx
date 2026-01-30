@@ -16,30 +16,6 @@ import { env } from "./env";
 import { analytics } from "./analytics";
 import type {ReactNode} from "react";
 
-const AUTH_SESSION_COOKIE = "ba_session";
-
-/**
- * Sync session from localStorage to cookie for SSR access
- */
-function syncSessionToCookie() {
-  if (typeof window === "undefined") return;
-
-  const keys = Object.keys(localStorage).filter((k) => k.includes("session"));
-  for (const key of keys) {
-    const value = localStorage.getItem(key);
-    if (value) {
-      const isSecure = window.location.protocol === "https:";
-      const secureFlag = isSecure ? "; Secure" : "";
-      document.cookie = `${AUTH_SESSION_COOKIE}=${encodeURIComponent(value)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${secureFlag}`;
-      break;
-    }
-  }
-}
-
-// Sync on module load
-if (typeof window !== "undefined") {
-  syncSessionToCookie();
-}
 
 /**
  * Deduplicating storage that only triggers updates when value actually changes.
@@ -58,11 +34,6 @@ const deduplicatingStorage = {
     deduplicatingStorage._cache.set(key, value);
     localStorage.setItem(key, value);
 
-    if (key.includes("session")) {
-      const isSecure = window.location.protocol === "https:";
-      const secureFlag = isSecure ? "; Secure" : "";
-      document.cookie = `${AUTH_SESSION_COOKIE}=${encodeURIComponent(value)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${secureFlag}`;
-    }
   },
 
   getItem: (key: string) => {
@@ -79,9 +50,6 @@ const deduplicatingStorage = {
   removeItem: (key: string) => {
     deduplicatingStorage._cache.delete(key);
     localStorage.removeItem(key);
-    if (key.includes("session")) {
-      document.cookie = `${AUTH_SESSION_COOKIE}=; path=/; max-age=0`;
-    }
   },
 };
 
@@ -248,24 +216,6 @@ export function useAuth(): AuthContextValue {
  * Legacy hook for backward compatibility.
  * Uses our stable, non-reactive session management.
  */
-export function useSession() {
-  const { user, loading } = useAuth();
-
-  return {
-    data: user
-      ? {
-          user: {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            image: user.image,
-          },
-        }
-      : null,
-    isPending: loading,
-  };
-}
-
 /**
  * Sign in with GitHub OAuth
  */

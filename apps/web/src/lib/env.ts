@@ -12,11 +12,15 @@ export const env = {
 } as const;
 
 // Validate required env vars
-export function validateEnv() {
-  if (!env.CONVEX_URL) {
-    console.warn("Missing VITE_CONVEX_URL environment variable");
-  }
-  if (!env.CONVEX_SITE_URL) {
-    console.warn("Missing VITE_CONVEX_SITE_URL environment variable");
-  }
+export function validateEnv(): void {
+	const errors: Array<string> = [];
+	if (!env.CONVEX_URL) {
+		errors.push("VITE_CONVEX_URL is required");
+	}
+	if (!env.CONVEX_SITE_URL) {
+		errors.push("VITE_CONVEX_SITE_URL is required");
+	}
+	if (errors.length > 0) {
+		throw new Error(`Missing required environment variables: ${errors.join(", ")}`);
+	}
 }

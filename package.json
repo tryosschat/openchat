@@ -33,7 +33,7 @@
     "convex:codegen": "cd apps/server && convex codegen",
     "convex:migrate": "bun ./scripts/run-migrations.ts",
     "convex:verify": "bun ./scripts/run-migrations.ts --verify-only",
-    "verify:build": "rm -rf apps/web/.next && (cd apps/web && bunx next build) && bunx turbo run build --filter=web --filter=server"
+    "verify:build": "(cd apps/web && bunx vite build) && bunx turbo run build --filter=web --filter=server"
   },
   "dependencies": {
     "@ai-sdk/devtools": "^0.0.6",

@@ -30,8 +30,16 @@ function createConvexTest() {
 	return t;
 }
 
+type TestInstance = ReturnType<typeof createConvexTest>;
+
+function asIdentity(t: TestInstance, subject: string) {
+	return t.withIdentity({ subject });
+}
+
 // Helper to create a real storage ID for testing
 async function createMockStorageId(t: ReturnType<typeof convexTest>): Promise<Id<'_storage'>> {
+
+
 	return await t.run(async (ctx) => {
 		// Store a tiny blob to get a valid storage ID
 		const blob = new Blob(['test'], { type: 'text/plain' });
@@ -70,7 +78,7 @@ describe('generateUploadUrl - Basic Functionality', () => {
 	});
 
 	it('should generate upload URL successfully', async () => {
-		const result = await t.mutation(api.files.generateUploadUrl, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.generateUploadUrl, {
 			userId,
 			chatId,
 		});
@@ -123,7 +131,7 @@ describe('generateUploadUrl - User Validation', () => {
 		});
 
 		await expect(
-			t.mutation(api.files.generateUploadUrl, {
+			asIdentity(t, 'ghost-user').mutation(api.files.generateUploadUrl, {
 				userId: fakeUserId,
 				chatId,
 			})
@@ -145,7 +153,7 @@ describe('generateUploadUrl - User Validation', () => {
 		});
 
 		await expect(
-			t.mutation(api.files.generateUploadUrl, {
+			asIdentity(t, 'test-user').mutation(api.files.generateUploadUrl, {
 				userId,
 				chatId: fakeChatId,
 			})
@@ -165,7 +173,7 @@ describe('generateUploadUrl - User Validation', () => {
 		});
 
 		await expect(
-			t.mutation(api.files.generateUploadUrl, {
+			asIdentity(t, 'other-user').mutation(api.files.generateUploadUrl, {
 				userId: otherUserId,
 				chatId,
 			})
@@ -221,7 +229,7 @@ describe('generateUploadUrl - Quota Management', () => {
 		});
 
 		await expect(
-			t.mutation(api.files.generateUploadUrl, {
+			asIdentity(t, 'test-user').mutation(api.files.generateUploadUrl, {
 				userId,
 				chatId,
 			})
@@ -245,7 +253,7 @@ describe('generateUploadUrl - Quota Management', () => {
 		});
 
 		await expect(
-			t.mutation(api.files.generateUploadUrl, {
+			asIdentity(t, 'test-user').mutation(api.files.generateUploadUrl, {
 				userId,
 				chatId,
 			})
@@ -268,7 +276,7 @@ describe('generateUploadUrl - Quota Management', () => {
 			await ctx.db.patch(chatId, { userId });
 		});
 
-		const result = await t.mutation(api.files.generateUploadUrl, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.generateUploadUrl, {
 			userId,
 			chatId,
 		});
@@ -291,7 +299,7 @@ describe('generateUploadUrl - Quota Management', () => {
 			await ctx.db.patch(chatId, { userId });
 		});
 
-		const result = await t.mutation(api.files.generateUploadUrl, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.generateUploadUrl, {
 			userId,
 			chatId,
 		});
@@ -334,7 +342,7 @@ describe('saveFileMetadata - Basic Functionality', () => {
 	});
 
 	it('should save file metadata successfully', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -349,7 +357,7 @@ describe('saveFileMetadata - Basic Functionality', () => {
 	});
 
 	it('should increment user file upload count', async () => {
-		await t.mutation(api.files.saveFileMetadata, {
+		await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -365,7 +373,7 @@ describe('saveFileMetadata - Basic Functionality', () => {
 	it('should update user updatedAt timestamp', async () => {
 		const beforeUpdate = Date.now();
 
-		await t.mutation(api.files.saveFileMetadata, {
+		await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -423,7 +431,7 @@ describe('saveFileMetadata - File Type Validation', () => {
 	];
 
 	it.each(validImageTypes)('should accept valid image type: %s', async (contentType, filename) => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -437,7 +445,7 @@ describe('saveFileMetadata - File Type Validation', () => {
 
 	it('should reject invalid file type', async () => {
 		await expect(
-			t.mutation(api.files.saveFileMetadata, {
+			asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 				userId,
 				chatId,
 				storageId,
@@ -449,7 +457,7 @@ describe('saveFileMetadata - File Type Validation', () => {
 	});
 
 	it('should handle case-insensitive content types', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -462,7 +470,7 @@ describe('saveFileMetadata - File Type Validation', () => {
 	});
 
 	it('should handle content types with whitespace', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -509,7 +517,7 @@ describe('saveFileMetadata - File Size Validation', () => {
 	});
 
 	it('should accept image within size limit (10MB)', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -523,7 +531,7 @@ describe('saveFileMetadata - File Size Validation', () => {
 
 	it('should reject image exceeding size limit (>10MB)', async () => {
 		await expect(
-			t.mutation(api.files.saveFileMetadata, {
+			asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 				userId,
 				chatId,
 				storageId,
@@ -535,7 +543,7 @@ describe('saveFileMetadata - File Size Validation', () => {
 	});
 
 	it('should accept audio within size limit (25MB)', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -549,7 +557,7 @@ describe('saveFileMetadata - File Size Validation', () => {
 
 	it('should reject audio exceeding size limit (>25MB)', async () => {
 		await expect(
-			t.mutation(api.files.saveFileMetadata, {
+			asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 				userId,
 				chatId,
 				storageId,
@@ -561,7 +569,7 @@ describe('saveFileMetadata - File Size Validation', () => {
 	});
 
 	it('should accept video within size limit (50MB)', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -575,7 +583,7 @@ describe('saveFileMetadata - File Size Validation', () => {
 
 	it('should reject video exceeding size limit (>50MB)', async () => {
 		await expect(
-			t.mutation(api.files.saveFileMetadata, {
+			asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 				userId,
 				chatId,
 				storageId,
@@ -588,7 +596,7 @@ describe('saveFileMetadata - File Size Validation', () => {
 
 	it('should include file size in error message', async () => {
 		try {
-			await t.mutation(api.files.saveFileMetadata, {
+			await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 				userId,
 				chatId,
 				storageId,
@@ -638,7 +646,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 	});
 
 	it('should preserve valid filename', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -651,7 +659,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 	});
 
 	it('should remove path components (forward slash)', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -664,7 +672,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 	});
 
 	it('should remove path components (backslash)', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -677,7 +685,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 	});
 
 	it('should replace dangerous characters with underscore', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -690,7 +698,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 	});
 
 	it('should trim whitespace', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -704,7 +712,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 
 	it('should limit filename length to 255 characters', async () => {
 		const longName = 'a'.repeat(300) + '.txt';
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -718,7 +726,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 	});
 
 	it('should use fallback name for empty filename', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -731,7 +739,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 	});
 
 	it('should use fallback name for dot only', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -744,7 +752,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 	});
 
 	it('should use fallback name for double dot', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -757,7 +765,7 @@ describe('saveFileMetadata - Filename Sanitization', () => {
 	});
 
 	it('should handle unicode characters in filename', async () => {
-		const result = await t.mutation(api.files.saveFileMetadata, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 			userId,
 			chatId,
 			storageId,
@@ -816,7 +824,7 @@ describe('saveFileMetadata - Authorization', () => {
 		});
 
 		await expect(
-			t.mutation(api.files.saveFileMetadata, {
+			asIdentity(t, 'ghost-user').mutation(api.files.saveFileMetadata, {
 				userId: fakeUserId,
 				chatId,
 				storageId,
@@ -842,7 +850,7 @@ describe('saveFileMetadata - Authorization', () => {
 		});
 
 		await expect(
-			t.mutation(api.files.saveFileMetadata, {
+			asIdentity(t, 'test-user').mutation(api.files.saveFileMetadata, {
 				userId,
 				chatId: fakeChatId,
 				storageId,
@@ -866,7 +874,7 @@ describe('saveFileMetadata - Authorization', () => {
 		});
 
 		await expect(
-			t.mutation(api.files.saveFileMetadata, {
+			asIdentity(t, 'other-user').mutation(api.files.saveFileMetadata, {
 				userId: otherUserId,
 				chatId,
 				storageId: storageId,
@@ -925,7 +933,7 @@ describe('deleteFile - Basic Functionality', () => {
 	});
 
 	it('should delete file successfully', async () => {
-		const result = await t.mutation(api.files.deleteFile, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.deleteFile, {
 			userId,
 			storageId: storageId,
 		});
@@ -934,7 +942,7 @@ describe('deleteFile - Basic Functionality', () => {
 	});
 
 	it('should soft delete file (set deletedAt)', async () => {
-		await t.mutation(api.files.deleteFile, {
+		await asIdentity(t, 'test-user').mutation(api.files.deleteFile, {
 			userId,
 			storageId: storageId,
 		});
@@ -944,7 +952,7 @@ describe('deleteFile - Basic Functionality', () => {
 	});
 
 	it('should decrement user file count', async () => {
-		await t.mutation(api.files.deleteFile, {
+		await asIdentity(t, 'test-user').mutation(api.files.deleteFile, {
 			userId,
 			storageId: storageId,
 		});
@@ -957,7 +965,7 @@ describe('deleteFile - Basic Functionality', () => {
 		// Create a new storage ID that has no associated file
 		const fakeStorageId = await createMockStorageId(t);
 
-		const result = await t.mutation(api.files.deleteFile, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.deleteFile, {
 			userId,
 			storageId: fakeStorageId,
 		});
@@ -978,7 +986,7 @@ describe('deleteFile - Basic Functionality', () => {
 		});
 
 		await expect(
-			t.mutation(api.files.deleteFile, {
+			asIdentity(t, 'other-user').mutation(api.files.deleteFile, {
 				userId: otherUserId,
 				storageId: storageId,
 			})
@@ -990,7 +998,7 @@ describe('deleteFile - Basic Functionality', () => {
 			await ctx.db.patch(fileId, { deletedAt: Date.now() });
 		});
 
-		const result = await t.mutation(api.files.deleteFile, {
+		const result = await asIdentity(t, 'test-user').mutation(api.files.deleteFile, {
 			userId,
 			storageId: storageId,
 		});
@@ -1019,7 +1027,7 @@ describe('getUserQuota - Basic Functionality', () => {
 			});
 		});
 
-		const quota = await t.query(api.files.getUserQuota, { userId });
+		const quota = await asIdentity(t, 'test-user').query(api.files.getUserQuota, { userId });
 
 		expect(quota.used).toBe(0);
 		expect(quota.limit).toBe(150);
@@ -1037,7 +1045,7 @@ describe('getUserQuota - Basic Functionality', () => {
 			});
 		});
 
-		const quota = await t.query(api.files.getUserQuota, { userId });
+		const quota = await asIdentity(t, 'test-user').query(api.files.getUserQuota, { userId });
 
 		expect(quota.used).toBe(42);
 		expect(quota.limit).toBe(150);
@@ -1055,7 +1063,7 @@ describe('getUserQuota - Basic Functionality', () => {
 			});
 		});
 
-		const quota = await t.query(api.files.getUserQuota, { userId });
+		const quota = await asIdentity(t, 'test-user').query(api.files.getUserQuota, { userId });
 
 		expect(quota.used).toBe(150);
 		expect(quota.limit).toBe(150);
@@ -1072,7 +1080,7 @@ describe('getUserQuota - Basic Functionality', () => {
 			});
 		});
 
-		const quota = await t.query(api.files.getUserQuota, { userId });
+		const quota = await asIdentity(t, 'test-user').query(api.files.getUserQuota, { userId });
 
 		expect(quota.used).toBe(0);
 		expect(quota.limit).toBe(150);
@@ -1116,7 +1124,7 @@ describe('getFileUrl - Basic Functionality', () => {
 	it('should return null for non-existent file', async () => {
 		const fakeStorageId = await createMockStorageId(t);
 
-		const url = await t.query(api.files.getFileUrl, {
+		const url = await asIdentity(t, 'test-user').query(api.files.getFileUrl, {
 			userId,
 			storageId: fakeStorageId,
 		});
@@ -1138,7 +1146,7 @@ describe('getFileUrl - Basic Functionality', () => {
 			});
 		});
 
-		const url = await t.query(api.files.getFileUrl, {
+		const url = await asIdentity(t, 'test-user').query(api.files.getFileUrl, {
 			userId,
 			storageId: storageId,
 		});
@@ -1171,7 +1179,7 @@ describe('getFileUrl - Basic Functionality', () => {
 		});
 
 		await expect(
-			t.query(api.files.getFileUrl, {
+			asIdentity(t, 'test-user').query(api.files.getFileUrl, {
 				userId,
 				storageId: storageId,
 			})
@@ -1214,7 +1222,7 @@ describe('getFilesByChat - Basic Functionality', () => {
 		});
 
 		await expect(
-			t.query(api.files.getFilesByChat, { userId, chatId: fakeChatId })
+			asIdentity(t, 'test-user').query(api.files.getFilesByChat, { userId, chatId: fakeChatId })
 		).rejects.toThrow('Chat not found');
 	});
 
@@ -1241,7 +1249,7 @@ describe('getFilesByChat - Basic Functionality', () => {
 		});
 
 		await expect(
-			t.query(api.files.getFilesByChat, { userId, chatId })
+			asIdentity(t, 'test-user').query(api.files.getFilesByChat, { userId, chatId })
 		).rejects.toThrow('Unauthorized: You do not own this chat');
 	});
 });
@@ -1280,7 +1288,7 @@ describe('getBatchFileUrls - Basic Functionality', () => {
 	});
 
 	it('should return empty array for empty input', async () => {
-		const results = await t.query(api.files.getBatchFileUrls, {
+		const results = await asIdentity(t, 'test-user').query(api.files.getBatchFileUrls, {
 			userId,
 			storageIds: [],
 		});
@@ -1295,7 +1303,7 @@ describe('getBatchFileUrls - Basic Functionality', () => {
 			await createMockStorageId(t),
 		];
 
-		const results = await t.query(api.files.getBatchFileUrls, {
+		const results = await asIdentity(t, 'test-user').query(api.files.getBatchFileUrls, {
 			userId,
 			storageIds: fakeStorageIds,
 		});
@@ -1320,7 +1328,7 @@ describe('getBatchFileUrls - Basic Functionality', () => {
 
 		const storageIds = [storageId, storageId, storageId];
 
-		const results = await t.query(api.files.getBatchFileUrls, {
+		const results = await asIdentity(t, 'test-user').query(api.files.getBatchFileUrls, {
 			userId,
 			storageIds,
 		});
@@ -1342,7 +1350,7 @@ describe('getBatchFileUrls - Basic Functionality', () => {
 			});
 		});
 
-		const results = await t.query(api.files.getBatchFileUrls, {
+		const results = await asIdentity(t, 'test-user').query(api.files.getBatchFileUrls, {
 			userId,
 			storageIds: [storageId],
 		});

@@ -19,6 +19,7 @@ import { Route as CChatIdRouteImport } from './routes/c/$chatId'
 import { Route as AuthSignInRouteImport } from './routes/auth/sign-in'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as ApiTypingRouteImport } from './routes/api/typing'
+import { Route as ApiOpenrouterKeyRouteImport } from './routes/api/openrouter-key'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 
 const TermsRoute = TermsRouteImport.update({
@@ -71,6 +72,11 @@ const ApiTypingRoute = ApiTypingRouteImport.update({
   path: '/api/typing',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiOpenrouterKeyRoute = ApiOpenrouterKeyRouteImport.update({
+  id: '/api/openrouter-key',
+  path: '/api/openrouter-key',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiChatRoute = ApiChatRouteImport.update({
   id: '/api/chat',
   path: '/api/chat',
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/terms': typeof TermsRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/openrouter-key': typeof ApiOpenrouterKeyRoute
   '/api/typing': typeof ApiTypingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
@@ -97,6 +104,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/terms': typeof TermsRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/openrouter-key': typeof ApiOpenrouterKeyRoute
   '/api/typing': typeof ApiTypingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
@@ -111,6 +119,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/terms': typeof TermsRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/openrouter-key': typeof ApiOpenrouterKeyRoute
   '/api/typing': typeof ApiTypingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
@@ -126,6 +135,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/terms'
     | '/api/chat'
+    | '/api/openrouter-key'
     | '/api/typing'
     | '/auth/callback'
     | '/auth/sign-in'
@@ -139,6 +149,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/terms'
     | '/api/chat'
+    | '/api/openrouter-key'
     | '/api/typing'
     | '/auth/callback'
     | '/auth/sign-in'
@@ -152,6 +163,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/terms'
     | '/api/chat'
+    | '/api/openrouter-key'
     | '/api/typing'
     | '/auth/callback'
     | '/auth/sign-in'
@@ -166,6 +178,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   TermsRoute: typeof TermsRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiOpenrouterKeyRoute: typeof ApiOpenrouterKeyRoute
   ApiTypingRoute: typeof ApiTypingRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthSignInRoute: typeof AuthSignInRoute
@@ -245,6 +258,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiTypingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/openrouter-key': {
+      id: '/api/openrouter-key'
+      path: '/api/openrouter-key'
+      fullPath: '/api/openrouter-key'
+      preLoaderRoute: typeof ApiOpenrouterKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/chat': {
       id: '/api/chat'
       path: '/api/chat'
@@ -262,6 +282,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   TermsRoute: TermsRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiOpenrouterKeyRoute: ApiOpenrouterKeyRoute,
   ApiTypingRoute: ApiTypingRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthSignInRoute: AuthSignInRoute,

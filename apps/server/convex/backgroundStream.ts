@@ -8,6 +8,8 @@ import {
 	calculateUsageCents,
 } from "./lib/billingUtils";
 import type { UsagePayload } from "./lib/billingUtils";
+import { requireAuthUserId } from "./lib/auth";
+import { decryptSecret } from "./lib/crypto";
 
 export const startStream = mutation({
 	args: {
@@ -16,7 +18,6 @@ export const startStream = mutation({
 		messageId: v.string(),
 		model: v.string(),
 		provider: v.string(),
-		apiKey: v.optional(v.string()),
 		messages: v.array(v.object({
 			role: v.string(),
 			content: v.string(),
@@ -29,13 +30,14 @@ export const startStream = mutation({
 	},
 	returns: v.id("streamJobs"),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId) {
+		if (!chat || chat.userId !== userId) {
 			throw new Error("Chat not found or unauthorized");
 		}
 
 		if (args.provider === "osschat") {
-			const user = await ctx.db.get(args.userId);
+			const user = await ctx.db.get(userId);
 			if (!user) {
 				throw new Error("User not found");
 			}
@@ -50,11 +52,11 @@ export const startStream = mutation({
 			// Prevent concurrent osschat streams per user (TOCTOU mitigation)
 			const runningOsschatJobs = await ctx.db
 				.query("streamJobs")
-				.withIndex("by_user", (q) => q.eq("userId", args.userId).eq("status", "running"))
+				.withIndex("by_user", (q) => q.eq("userId", userId).eq("status", "running"))
 				.collect();
 			const pendingOsschatJobs = await ctx.db
 				.query("streamJobs")
-				.withIndex("by_user", (q) => q.eq("userId", args.userId).eq("status", "pending"))
+				.withIndex("by_user", (q) => q.eq("userId", userId).eq("status", "pending"))
 				.collect();
 			const activeOsschatCount = runningOsschatJobs.filter(j => j.provider === "osschat").length
 				+ pendingOsschatJobs.filter(j => j.provider === "osschat").length;
@@ -76,7 +78,7 @@ export const startStream = mutation({
 
 		const jobId = await ctx.db.insert("streamJobs", {
 			chatId: args.chatId,
-			userId: args.userId,
+			userId,
 			messageId: args.messageId,
 			status: "pending",
 			model: args.model,
@@ -95,7 +97,6 @@ export const startStream = mutation({
 
 		await ctx.scheduler.runAfter(0, internal.backgroundStream.executeStream, {
 			jobId,
-			apiKey: args.apiKey,
 		});
 
 		return jobId;
@@ -119,8 +120,9 @@ export const getStreamJob = query({
 		v.null()
 	),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const job = await ctx.db.get(args.jobId);
-		if (!job || job.userId !== args.userId) return null;
+		if (!job || job.userId !== userId) return null;
 		
 		return {
 			_id: job._id,
@@ -150,6 +152,7 @@ export const getActiveStreamJob = query({
 		v.null()
 	),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const jobs = await ctx.db
 			.query("streamJobs")
 			.withIndex("by_chat", (q) => 
@@ -157,7 +160,7 @@ export const getActiveStreamJob = query({
 			)
 			.first();
 		
-		if (!jobs || jobs.userId !== args.userId) {
+		if (!jobs || jobs.userId !== userId) {
 			const pending = await ctx.db
 				.query("streamJobs")
 				.withIndex("by_chat", (q) => 
@@ -165,7 +168,7 @@ export const getActiveStreamJob = query({
 				)
 				.first();
 			
-			if (!pending || pending.userId !== args.userId) return null;
+			if (!pending || pending.userId !== userId) return null;
 			
 			return {
 				_id: pending._id,
@@ -305,7 +308,6 @@ export const failStream = internalMutation({
 export const executeStream = internalAction({
 	args: {
 		jobId: v.id("streamJobs"),
-		apiKey: v.optional(v.string()),
 	},
 	handler: async (ctx, args) => {
 		const job = await ctx.runQuery(internal.backgroundStream.getJobInternal, { 
@@ -324,7 +326,15 @@ export const executeStream = internalAction({
 		});
 
 		const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-		const apiKey = job.provider === "osschat" ? OPENROUTER_API_KEY : args.apiKey;
+		let apiKey: string | null = null;
+		if (job.provider === "osschat") {
+			apiKey = OPENROUTER_API_KEY ?? null;
+		} else {
+			const encryptedKey = await ctx.runQuery(internal.users.getOpenRouterKeyInternal, {
+				userId: job.userId,
+			});
+			apiKey = encryptedKey ? await decryptSecret(encryptedKey) : null;
+		}
 
 		if (!apiKey) {
 			await ctx.runMutation(internal.backgroundStream.failStream, {
@@ -534,9 +544,10 @@ export const cleanupStaleJobs = mutation({
 		userId: v.id("users"),
 	},
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const staleJobs = await ctx.db
 			.query("streamJobs")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.filter((q) => 
 				q.or(
 					q.eq(q.field("status"), "running"),

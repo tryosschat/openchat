@@ -10,8 +10,6 @@
  * - Convex persistence for chat history
  */
 
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";

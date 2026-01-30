@@ -5,6 +5,7 @@ import { createLogger } from "./lib/logger";
 import { rateLimiter } from "./lib/rateLimiter";
 import { throwRateLimitError } from "./lib/rateLimitUtils";
 import { sanitizeFilename } from "./lib/sanitize";
+import { requireAuthUserId } from "./lib/auth";
 
 // Constants & Configuration
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB in bytes (default)
@@ -137,9 +138,10 @@ export const generateUploadUrl = mutation({
 	},
 	returns: v.string(),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limit upload URL generation
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "fileGenerateUploadUrl", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -149,7 +151,7 @@ export const generateUploadUrl = mutation({
 		// PERFORMANCE OPTIMIZATION: Fetch user and chat in parallel to reduce latency
 		// This reduces total wait time from T(user) + T(chat) to max(T(user), T(chat))
 		const [user, chat] = await Promise.all([
-			ctx.db.get(args.userId),
+			ctx.db.get(userId),
 			ctx.db.get(args.chatId),
 		]);
 
@@ -162,7 +164,7 @@ export const generateUploadUrl = mutation({
 		if (!chat) {
 			throw new Error("Chat not found");
 		}
-		if (chat.userId !== args.userId) {
+		if (chat.userId !== userId) {
 			throw new Error("Unauthorized: You do not own this chat");
 		}
 
@@ -207,9 +209,10 @@ export const saveFileMetadata = mutation({
 		url: v.union(v.string(), v.null()),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limit file metadata saves
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "fileSaveMetadata", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -225,7 +228,7 @@ export const saveFileMetadata = mutation({
 		// PERFORMANCE OPTIMIZATION: Fetch user and chat in parallel
 		// This eliminates duplicate user lookup (was fetched again after file insert)
 		const [user, chat] = await Promise.all([
-			ctx.db.get(args.userId),
+			ctx.db.get(userId),
 			ctx.db.get(args.chatId),
 		]);
 
@@ -238,7 +241,7 @@ export const saveFileMetadata = mutation({
 		if (!chat) {
 			throw new Error("Chat not found");
 		}
-		if (chat.userId !== args.userId) {
+		if (chat.userId !== userId) {
 			throw new Error("Unauthorized: You do not own this chat");
 		}
 
@@ -247,7 +250,7 @@ export const saveFileMetadata = mutation({
 
 		// Insert file metadata into database
 		const fileId = await ctx.db.insert("fileUploads", {
-			userId: args.userId,
+			userId,
 			chatId: args.chatId,
 			storageId: args.storageId,
 			filename: sanitizedFilename,
@@ -258,7 +261,7 @@ export const saveFileMetadata = mutation({
 
 		// PERFORMANCE OPTIMIZATION: Use the user object we already fetched
 		// This avoids a second database lookup for the same user
-		await ctx.db.patch(args.userId, {
+		await ctx.db.patch(userId, {
 			fileUploadCount: (user.fileUploadCount || 0) + 1,
 			updatedAt: Date.now(),
 		});
@@ -289,6 +292,7 @@ export const getFileUrl = query({
 	},
 	returns: v.union(v.string(), v.null()),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Find the file by storage ID
 		const file = await ctx.db
 			.query("fileUploads")
@@ -300,7 +304,7 @@ export const getFileUrl = query({
 			return null;
 		}
 
-		if (file.userId !== args.userId) {
+		if (file.userId !== userId) {
 			throw new Error("Unauthorized: You do not own this file");
 		}
 
@@ -335,6 +339,7 @@ export const getBatchFileUrls = query({
 		})
 	),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// If no storage IDs provided, return empty array
 		if (args.storageIds.length === 0) {
 			return [];
@@ -357,7 +362,7 @@ export const getBatchFileUrls = query({
 		// Filter to only files that exist, belong to user, and aren't deleted
 		const validFiles = fileResults.filter(({ file }) => {
 			if (!file) return false;
-			if (file.userId !== args.userId) return false;
+			if (file.userId !== userId) return false;
 			if (file.deletedAt) return false;
 			return true;
 		});
@@ -405,9 +410,10 @@ export const deleteFile = mutation({
 	},
 	returns: v.object({ ok: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limit file deletions
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "fileDelete", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -425,7 +431,7 @@ export const deleteFile = mutation({
 		}
 
 		// Verify ownership
-		if (file.userId !== args.userId) {
+		if (file.userId !== userId) {
 			throw new Error("Unauthorized: You do not own this file");
 		}
 
@@ -453,9 +459,9 @@ export const deleteFile = mutation({
 		}
 
 		// Decrement user's file upload count
-		const user = await ctx.db.get(args.userId);
+		const user = await ctx.db.get(userId);
 		if (user && user.fileUploadCount && user.fileUploadCount > 0) {
-			await ctx.db.patch(args.userId, {
+			await ctx.db.patch(userId, {
 				fileUploadCount: user.fileUploadCount - 1,
 				updatedAt: Date.now(),
 			});
@@ -480,7 +486,8 @@ export const getUserQuota = query({
 		limit: v.number(),
 	}),
 	handler: async (ctx, args) => {
-		const user = await ctx.db.get(args.userId);
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const user = await ctx.db.get(userId);
 
 		return {
 			used: user?.fileUploadCount || 0,
@@ -513,12 +520,13 @@ export const getFilesByChat = query({
 		})
 	),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Verify the chat exists and belongs to the user
 		const chat = await ctx.db.get(args.chatId);
 		if (!chat) {
 			throw new Error("Chat not found");
 		}
-		if (chat.userId !== args.userId) {
+		if (chat.userId !== userId) {
 			throw new Error("Unauthorized: You do not own this chat");
 		}
 
@@ -565,11 +573,12 @@ export const getFilesByUser = query({
 		})
 	),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Query all non-deleted files for this user
 		const files = await ctx.db
 			.query("fileUploads")
 			.withIndex("by_user_not_deleted", (q) =>
-				q.eq("userId", args.userId).eq("deletedAt", undefined)
+				q.eq("userId", userId).eq("deletedAt", undefined)
 			)
 			.order("desc")
 			.collect();

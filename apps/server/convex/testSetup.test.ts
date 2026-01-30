@@ -10,8 +10,6 @@
 
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import type { TestConvex } from "convex-test";
-import type { GenericSchema, SchemaDefinition } from "convex/server";
 
 // Create modules object that convex-test expects (lazy-loaded functions)
 export const modules = {
@@ -51,11 +49,13 @@ const rateLimiterComponentSchema = defineSchema({
 // Rate limiter component modules (using proper package imports)
 // Import directly from the package without hardcoded paths
 const rateLimiterComponentModules = {
-  './internal.ts': () => import('@convex-dev/rate-limiter/dist/component/internal.js'),
-  './lib.ts': () => import('@convex-dev/rate-limiter/dist/component/lib.js'),
-  './schema.ts': () => import('@convex-dev/rate-limiter/dist/component/schema.js'),
-  './_generated/api.ts': () => import('@convex-dev/rate-limiter/dist/component/_generated/api.js'),
-  './_generated/server.ts': () => import('@convex-dev/rate-limiter/dist/component/_generated/server.js'),
+	// Bun respects package "exports" and blocks deep imports.
+	// Use relative file imports into node_modules to load component modules.
+	'./internal.ts': () => import('../../../node_modules/@convex-dev/rate-limiter/dist/component/internal.js'),
+	'./lib.ts': () => import('../../../node_modules/@convex-dev/rate-limiter/dist/component/lib.js'),
+	'./schema.ts': () => import('../../../node_modules/@convex-dev/rate-limiter/dist/component/schema.js'),
+	'./_generated/api.ts': () => import('../../../node_modules/@convex-dev/rate-limiter/dist/component/_generated/api.js'),
+	'./_generated/server.ts': () => import('../../../node_modules/@convex-dev/rate-limiter/dist/component/_generated/server.js'),
 };
 
 /**
@@ -65,9 +65,12 @@ const rateLimiterComponentModules = {
 export const rateLimiter = {
   schema: rateLimiterComponentSchema,
   modules: rateLimiterComponentModules,
-  register: (t: TestConvex<SchemaDefinition<GenericSchema, boolean>>, name: string = "rateLimiter") => {
-    t.registerComponent(name, rateLimiterComponentSchema, rateLimiterComponentModules);
-  },
+	register: (
+		t: any,
+		name: string = "rateLimiter",
+	) => {
+		t.registerComponent(name, rateLimiterComponentSchema, rateLimiterComponentModules);
+	},
 };
 
 // Also export these for backwards compatibility

@@ -25,3 +25,14 @@ export function getConvexServerClient() {
 	}
 	return convexServerClient;
 }
+
+export function createConvexServerClient(authToken?: string) {
+	if (!CONVEX_URL) {
+		throw new Error("VITE_CONVEX_URL is not configured");
+	}
+	const client = new ConvexHttpClient(CONVEX_URL);
+	if (authToken) {
+		client.setAuth(authToken);
+	}
+	return client;
+}

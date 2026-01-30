@@ -6,15 +6,15 @@ import { internalAction } from "./_generated/server";
  * This function is automatically run on preview deployments via the --preview-run flag.
  *
  * Usage in package.json build command:
- * convex deploy --cmd 'bun run build' --preview-run previewSeed --preview-create NEXT_PUBLIC_DEPLOYMENT=preview
+ * convex deploy --cmd 'bun run build' --preview-run previewSeed --preview-create DEPLOYMENT=preview
  *
  * Note: With Better Auth, users are managed via GitHub OAuth. This seed function
  * can be used to initialize any preview-specific data if needed.
  */
 export default internalAction(async (_ctx) => {
-	const deployment = process.env.NEXT_PUBLIC_DEPLOYMENT;
+	const deployment = process.env.DEPLOYMENT;
 	const nodeEnv = process.env.NODE_ENV;
-	const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+	const appUrl = process.env.APP_URL || "http://localhost:3000";
 
 	console.log(`[Preview Seed] Running in deployment: ${deployment}, NODE_ENV: ${nodeEnv}`);
 	console.log(`[Preview Seed] App URL: ${appUrl}`);

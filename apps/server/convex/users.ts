@@ -1,13 +1,12 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import type { GenericCtx } from "@convex-dev/better-auth";
 import type { DataModel } from "./_generated/dataModel";
 import { incrementStat, decrementStat, STAT_KEYS } from "./lib/dbStats";
 import { rateLimiter } from "./lib/rateLimiter";
 import { throwRateLimitError } from "./lib/rateLimitUtils";
 import { getProfileByUserId, getOrCreateProfile } from "./lib/profiles";
-import { authComponent } from "./auth";
 import { components } from "./_generated/api";
+import { requireAuthUserId } from "./lib/auth";
 
 // User with profile data (for backwards-compatible responses)
 // Includes merged profile data that prefers profile over user during migration
@@ -44,16 +43,21 @@ export const ensure = mutation({
 		avatarUrl: v.optional(v.string()),
 	},
 	returns: v.object({ userId: v.id("users") }),
-	handler: async (ctx, args) => {
+		handler: async (ctx, args) => {
+			const identity = await ctx.auth.getUserIdentity();
+			if (!identity || identity.subject !== args.externalId) {
+				throw new Error("Unauthorized");
+			}
+
 		// Rate limit user authentication/creation per external ID
 		// NOTE: Using externalId (from Better Auth) is safe because:
 		// 1. Better Auth already handles brute-force protection at the auth layer
 		// 2. Using a global key causes write conflicts under load (all users
 		//    compete for the same rate limit row, causing OCC failures)
 		// 3. The externalId is verified by Better Auth before reaching this function
-		const { ok, retryAfter } = await rateLimiter.limit(ctx, "userEnsure", {
-			key: args.externalId,
-		});
+			const { ok, retryAfter } = await rateLimiter.limit(ctx, "userEnsure", {
+				key: identity.subject,
+			});
 
 		if (!ok) {
 			throwRateLimitError("authentication attempts", retryAfter);
@@ -170,7 +174,14 @@ export const ensure = mutation({
 export const getCurrentAuthUser = query({
 	args: {},
 	handler: async (ctx) => {
-		return authComponent.getAuthUser(ctx as unknown as GenericCtx<DataModel>);
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return null;
+		return {
+			_id: identity.subject,
+			email: identity.email,
+			name: identity.name,
+			image: identity.pictureUrl,
+		};
 	},
 });
 
@@ -180,10 +191,13 @@ export const getByExternalId = query({
 	},
 	returns: v.union(userWithProfileDoc, v.null()),
 	handler: async (ctx, args) => {
-		const user = await ctx.db
-			.query("users")
-			.withIndex("by_external_id", (q) => q.eq("externalId", args.externalId))
-			.unique();
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity || identity.subject !== args.externalId) return null;
+
+			const user = await ctx.db
+				.query("users")
+				.withIndex("by_external_id", (q) => q.eq("externalId", args.externalId))
+				.unique();
 
 		if (!user) return null;
 
@@ -216,14 +230,53 @@ export const getByExternalId = query({
 	},
 });
 
-export const getById = query({
+export const getByExternalIdInternal = internalQuery({
 	args: {
-		userId: v.id("users"),
+		externalId: v.string(),
 	},
 	returns: v.union(userWithProfileDoc, v.null()),
 	handler: async (ctx, args) => {
-		const user = await ctx.db.get(args.userId);
+		const user = await ctx.db
+			.query("users")
+			.withIndex("by_external_id", (q) => q.eq("externalId", args.externalId))
+			.unique();
+
 		if (!user) return null;
+
+		const profile = await getProfileByUserId(ctx, user._id);
+
+		return {
+			_id: user._id,
+			_creationTime: user._creationTime,
+			externalId: user.externalId,
+			email: user.email,
+			name: profile?.name ?? user.name,
+			avatarUrl: profile?.avatarUrl ?? user.avatarUrl,
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+			fileUploadCount: profile?.fileUploadCount ?? user.fileUploadCount ?? 0,
+			aiUsageCents: user.aiUsageCents,
+			aiUsageDate: user.aiUsageDate,
+			banned: user.banned,
+			bannedAt: user.bannedAt,
+			banReason: user.banReason,
+			banExpiresAt: user.banExpiresAt,
+			createdAt: user.createdAt,
+			updatedAt: user.updatedAt,
+			hasProfile: profile !== null,
+		};
+	},
+});
+
+	export const getById = query({
+		args: {
+			userId: v.id("users"),
+		},
+		returns: v.union(userWithProfileDoc, v.null()),
+		handler: async (ctx, args) => {
+			const userId = await requireAuthUserId(ctx, args.userId);
+			const user = await ctx.db.get(userId);
+			if (!user) return null;
 
 		// Get profile data (may not exist during migration)
 		const profile = await getProfileByUserId(ctx, user._id);
@@ -330,9 +383,10 @@ export const saveOpenRouterKey = mutation({
 	},
 	returns: v.object({ success: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limit API key saves
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "userSaveApiKey", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -342,14 +396,14 @@ export const saveOpenRouterKey = mutation({
 		const now = Date.now();
 
 		// Update profile (primary location for API key)
-		const profile = await getOrCreateProfile(ctx, args.userId);
+		const profile = await getOrCreateProfile(ctx, userId);
 		await ctx.db.patch(profile._id, {
 			encryptedOpenRouterKey: args.encryptedKey,
 			updatedAt: now,
 		});
 
 		// Also update user table for backwards compatibility during migration
-		await ctx.db.patch(args.userId, {
+		await ctx.db.patch(userId, {
 			encryptedOpenRouterKey: args.encryptedKey,
 			updatedAt: now,
 		});
@@ -364,13 +418,30 @@ export const getOpenRouterKey = query({
 	},
 	returns: v.union(v.string(), v.null()),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Try profile first (primary location)
-		const profile = await getProfileByUserId(ctx, args.userId);
+		const profile = await getProfileByUserId(ctx, userId);
 		if (profile?.encryptedOpenRouterKey) {
 			return profile.encryptedOpenRouterKey;
 		}
 
 		// Fall back to user table during migration
+		const user = await ctx.db.get(userId);
+		return user?.encryptedOpenRouterKey ?? null;
+	},
+});
+
+export const getOpenRouterKeyInternal = internalQuery({
+	args: {
+		userId: v.id("users"),
+	},
+	returns: v.union(v.string(), v.null()),
+	handler: async (ctx, args) => {
+		const profile = await getProfileByUserId(ctx, args.userId);
+		if (profile?.encryptedOpenRouterKey) {
+			return profile.encryptedOpenRouterKey;
+		}
+
 		const user = await ctx.db.get(args.userId);
 		return user?.encryptedOpenRouterKey ?? null;
 	},
@@ -382,9 +453,10 @@ export const removeOpenRouterKey = mutation({
 	},
 	returns: v.object({ success: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limit API key removals
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "userRemoveApiKey", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -394,7 +466,7 @@ export const removeOpenRouterKey = mutation({
 		const now = Date.now();
 
 		// Remove from profile (primary location)
-		const profile = await getProfileByUserId(ctx, args.userId);
+		const profile = await getProfileByUserId(ctx, userId);
 		if (profile) {
 			await ctx.db.patch(profile._id, {
 				encryptedOpenRouterKey: undefined,
@@ -403,7 +475,7 @@ export const removeOpenRouterKey = mutation({
 		}
 
 		// Also remove from user table for backwards compatibility during migration
-		await ctx.db.patch(args.userId, {
+		await ctx.db.patch(userId, {
 			encryptedOpenRouterKey: undefined,
 			updatedAt: now,
 		});
@@ -418,7 +490,8 @@ export const getFavoriteModels = query({
 	},
 	returns: v.union(v.array(v.string()), v.null()),
 	handler: async (ctx, args) => {
-		const profile = await getProfileByUserId(ctx, args.userId);
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const profile = await getProfileByUserId(ctx, userId);
 		// Return null if favorites have never been set (allows frontend to apply defaults)
 		// Return [] if user explicitly cleared all favorites
 		if (!profile) return null;
@@ -433,7 +506,8 @@ export const toggleFavoriteModel = mutation({
 	},
 	returns: v.object({ isFavorite: v.boolean(), favorites: v.array(v.string()) }),
 	handler: async (ctx, args) => {
-		const profile = await getOrCreateProfile(ctx, args.userId);
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const profile = await getOrCreateProfile(ctx, userId);
 		const currentFavorites = profile.favoriteModels ?? [];
 		const isFavorite = currentFavorites.includes(args.modelId);
 		
@@ -457,7 +531,8 @@ export const setFavoriteModels = mutation({
 	},
 	returns: v.object({ success: v.boolean() }),
 	handler: async (ctx, args) => {
-		const profile = await getOrCreateProfile(ctx, args.userId);
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const profile = await getOrCreateProfile(ctx, userId);
 
 		await ctx.db.patch(profile._id, {
 			favoriteModels: args.modelIds,
@@ -475,6 +550,7 @@ export const updateName = mutation({
 	},
 	returns: v.object({ success: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Validate name (1-100 chars, no excessive whitespace)
 		const trimmedName = args.name.trim();
 		if (trimmedName.length === 0 || trimmedName.length > 100) {
@@ -484,14 +560,14 @@ export const updateName = mutation({
 		const now = Date.now();
 
 		// Update profile (primary location for name)
-		const profile = await getOrCreateProfile(ctx, args.userId);
+		const profile = await getOrCreateProfile(ctx, userId);
 		await ctx.db.patch(profile._id, {
 			name: trimmedName,
 			updatedAt: now,
 		});
 
 		// Also update user table for backwards compatibility during migration
-		await ctx.db.patch(args.userId, {
+		await ctx.db.patch(userId, {
 			name: trimmedName,
 			updatedAt: now,
 		});
@@ -520,9 +596,14 @@ export const deleteAccount = mutation({
 	},
 	returns: v.object({ success: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity || identity.subject !== args.externalId) {
+			throw new Error("User not found or unauthorized");
+		}
 		// Verify user exists and externalId matches (authorization check)
-		const user = await ctx.db.get(args.userId);
-		if (!user || user.externalId !== args.externalId) {
+		const user = await ctx.db.get(userId);
+		if (!user || user.externalId !== identity.subject) {
 			throw new Error("User not found or unauthorized");
 		}
 
@@ -531,7 +612,7 @@ export const deleteAccount = mutation({
 		await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
 			input: {
 				model: "session",
-				where: [{ field: "userId", operator: "eq", value: args.externalId }],
+				where: [{ field: "userId", operator: "eq", value: identity.subject }],
 			},
 			paginationOpts: { cursor: null, numItems: 1000 },
 		});
@@ -540,7 +621,7 @@ export const deleteAccount = mutation({
 		await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
 			input: {
 				model: "account",
-				where: [{ field: "userId", operator: "eq", value: args.externalId }],
+				where: [{ field: "userId", operator: "eq", value: identity.subject }],
 			},
 			paginationOpts: { cursor: null, numItems: 100 },
 		});
@@ -549,7 +630,7 @@ export const deleteAccount = mutation({
 		await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
 			input: {
 				model: "user",
-				where: [{ field: "_id", operator: "eq", value: args.externalId }],
+				where: [{ field: "_id", operator: "eq", value: identity.subject }],
 			},
 			paginationOpts: { cursor: null, numItems: 1 },
 		});
@@ -557,7 +638,7 @@ export const deleteAccount = mutation({
 		// 4. Delete streamJobs
 		const streamJobs = await ctx.db
 			.query("streamJobs")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const job of streamJobs) {
 			await ctx.db.delete(job._id);
@@ -566,7 +647,7 @@ export const deleteAccount = mutation({
 		// 5. Delete chatReadStatus
 		const readStatuses = await ctx.db
 			.query("chatReadStatus")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const status of readStatuses) {
 			await ctx.db.delete(status._id);
@@ -575,7 +656,7 @@ export const deleteAccount = mutation({
 		// 6. Delete fileUploads AND storage blobs
 		const fileUploads = await ctx.db
 			.query("fileUploads")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const file of fileUploads) {
 			// Delete the actual file from Convex storage
@@ -594,7 +675,7 @@ export const deleteAccount = mutation({
 		// 7. Delete messages (all messages for all user's chats)
 		const messages = await ctx.db
 			.query("messages")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const message of messages) {
 			await ctx.db.delete(message._id);
@@ -603,7 +684,7 @@ export const deleteAccount = mutation({
 		// 8. Delete chats
 		const chats = await ctx.db
 			.query("chats")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const chat of chats) {
 			await ctx.db.delete(chat._id);
@@ -612,7 +693,7 @@ export const deleteAccount = mutation({
 		// 9. Delete promptTemplates
 		const templates = await ctx.db
 			.query("promptTemplates")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const template of templates) {
 			await ctx.db.delete(template._id);
@@ -621,14 +702,14 @@ export const deleteAccount = mutation({
 		// 10. Delete profile
 		const profile = await ctx.db
 			.query("profiles")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.unique();
 		if (profile) {
 			await ctx.db.delete(profile._id);
 		}
 
 		// 11. Delete user record last
-		await ctx.db.delete(args.userId);
+		await ctx.db.delete(userId);
 
 		// 12. Update stats
 		await decrementStat(ctx, STAT_KEYS.USERS_TOTAL);

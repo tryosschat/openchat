@@ -1,0 +1,607 @@
+================================================================================
+OPENCHAT — COMPREHENSIVE REPO AUDIT & FIX PLAN
+Generated: January 29, 2026
+================================================================================
+
+TABLE OF CONTENTS
+─────────────────
+I.    LSP & BUILD STATUS
+II.   SECURITY ISSUES (3 Critical, 5 High, 5 Medium)
+III.  CODE QUALITY ISSUES
+IV.   ARCHITECTURE ISSUES
+V.    DEAD CODE & NEXT.JS LEFTOVERS
+VI.   DEPENDENCY UPGRADES
+VII.  VERSION MISMATCHES
+VIII. RECOMMENDED FIX ORDER
+
+================================================================================
+I. LSP & BUILD STATUS
+================================================================================
+
+✅ ZERO LSP errors across all 116+ source files.
+✅ bun check-types passes (2/2 packages).
+❌ bun check (eslint) — 4 errors in use-persistent-chat.ts:
+
+  FILE: apps/web/src/hooks/use-persistent-chat.ts
+  - Line 198: no-unnecessary-condition — Unnecessary optional chain (msg.parts?.some)
+  - Line 266: no-unnecessary-condition — Unnecessary optional chain (prev[idx].parts?.find)
+  - Line 267: no-unnecessary-condition — Unnecessary optional chain (prev[idx].parts?.find)
+  - Line 375: no-unnecessary-condition — Value is always truthy
+
+  FIX: Remove the unnecessary optional chains (?.  →  .)
+
+================================================================================
+II. SECURITY ISSUES
+================================================================================
+
+──── CRITICAL ────
+
+[SEC-1] NO AUTHENTICATION ON /api/chat AND /api/typing
+  File: apps/web/src/routes/api/chat.ts
+  File: apps/web/src/routes/api/typing.ts
+  Issue: POST handlers accept userId, apiKey, model, and messages from request
+         body with ZERO auth verification. Any unauthenticated client can:
+         - Use the server's OPENROUTER_API_KEY for free (provider: "osschat")
+         - Impersonate any user by sending any userId
+         - Stream AI responses without being logged in
+  Fix: Add session verification. Derive userId from authenticated session, not
+       from client request body. Reject unauthenticated requests with 401.
+
+[SEC-2] NO AUTHENTICATION ON /stream-llm HTTP ACTION
+  File: apps/server/convex/streaming.ts:515
+  Issue: The streaming endpoint accepts apiKey directly in POST body with no
+         session verification. Anyone with the Convex site URL can call it.
+  Fix: Verify caller identity before processing. At minimum, validate that
+       the streamId was created by an authenticated user in a prior mutation.
+
+[SEC-3] CLIENT-SUPPLIED userId TRUSTED IN ALL CONVEX MUTATIONS
+  Files: apps/server/convex/chats.ts, messages.ts, users.ts, streaming.ts,
+         backgroundStream.ts
+  Issue: Every public mutation (chats.create, messages.send,
+         users.saveOpenRouterKey, users.deleteAccount, etc.) accepts userId
+         as a client argument. Ownership checks compare against THAT SAME
+         userId. A malicious client can pass any valid userId.
+  Fix: Use Better Auth's server-side session to derive the authenticated
+       userId. Never trust client-supplied userId for authorization.
+
+──── HIGH ────
+
+[SEC-4] CORS WILDCARD ON STREAMING ENDPOINT
+  File: apps/server/convex/streaming.ts:521, 863
+  Issue: Access-Control-Allow-Origin: * on the streaming endpoint.
+  Fix: Replace with explicit allowed origins list matching http.ts config.
+
+[SEC-5] SESSION COOKIE NOT httpOnly — XSS STEALABLE
+  File: apps/web/src/lib/auth-client.tsx:33
+  Issue: Session cookie set via document.cookie without httpOnly flag.
+         Any XSS vulnerability allows stealing the session.
+  Fix: Set session cookies server-side with httpOnly; Secure; SameSite=Lax.
+
+[SEC-6] API KEY PASSED THROUGH CONVEX MUTATION ARGS
+  File: apps/server/convex/backgroundStream.ts:19 (startStream args.apiKey)
+  Issue: User's OpenRouter API key is passed as a mutation argument. Convex
+         mutations are logged/auditable — the key could appear in logs.
+  Fix: Store encrypted keys in the database and retrieve server-side.
+       Never pass secrets through mutation arguments.
+
+[SEC-7] NO RATE LIMITING ON /api/chat
+  File: apps/web/src/routes/api/chat.ts
+  Issue: No rate limiting. Server credits (OPENROUTER_API_KEY) can be
+         exhausted by rapid requests.
+  Fix: Add rate limiting per-user and per-IP. The server already has
+       @convex-dev/rate-limiter — use it or add middleware on the web side.
+
+[SEC-8] RAW ERROR MESSAGES LEAKED TO CLIENTS
+  Files: apps/web/src/routes/api/chat.ts:354, apps/server/convex/streaming.ts:880
+  Issue: Internal error messages (including stack traces) returned in JSON
+         responses. Can reveal internal architecture.
+  Fix: Return generic error messages to clients. Log details server-side.
+
+──── MEDIUM ────
+
+[SEC-9] WILDCARD TRUSTED ORIGINS IN BETTER AUTH
+  File: apps/server/convex/auth.ts:109-111
+  Issue: trustedOrigins includes "https://*.up.railway.app" and
+         "https://*.convex.site" — overly permissive.
+  Fix: Restrict to known deployment origins only.
+
+[SEC-10] NO CSRF PROTECTION ON WEB API ROUTES
+  Files: apps/web/src/routes/api/chat.ts, api/typing.ts
+  Issue: No CSRF token validation on POST endpoints.
+  Fix: Add CSRF token verification or use SameSite cookie protection.
+
+[SEC-11] WEAK ENV VALIDATION
+  File: apps/web/src/lib/env.ts
+  Issue: validateEnv() only console.warn()s when required vars are missing.
+         App continues and crashes later when creating Convex client.
+  Fix: Throw on missing required env vars, or type as string | undefined.
+
+[SEC-12] NON-NULL ASSERTIONS ON ENV VARS
+  File: apps/server/convex/auth.ts:82-83
+  Issue: process.env.GITHUB_CLIENT_ID! and GITHUB_CLIENT_SECRET! — will
+         be undefined if not set, causing silent auth failures.
+  Fix: Use requireEnv() helper or add runtime validation with clear errors.
+
+[SEC-13] HARDCODED PRODUCTION URL EXPOSED
+  File: apps/server/convex/auth.ts:14
+  Issue: PRODUCTION_CONVEX_SITE_URL = "https://outgoing-setter-201.convex.site"
+         hardcoded in source. Should be an env var.
+  Fix: Move to environment variable.
+
+================================================================================
+III. CODE QUALITY ISSUES
+================================================================================
+
+──── as any CASTS (7 production, 4 test, 11 auto-generated) ────
+
+  Production:
+  - apps/server/convex/migrations.ts:40        — } as any); (adapter query)
+  - apps/server/convex/migrations.ts:51        — } as any); (adapter mutation)
+  - apps/server/convex/migrations.ts:442       — } as any); (patching deprecated)
+  - apps/server/convex/polyfills.ts:36         — (globalThis as any).MessageChannel
+  - apps/web/src/routes/api/chat.ts:172        — } as any; (webSearch tools)
+  - apps/server/convex/streaming.ts:601        — actionCtx: any (parameter type)
+  - apps/server/convex/auth.ts:64              — as unknown as typeof plugins[number]
+
+  Test:
+  - apps/server/convex/messages.test.ts:460    — role: 'system' as any
+  - apps/server/convex/users.test.ts:214,441,584 — catch (error: any)
+
+  Auto-generated (ignore):
+  - apps/web/src/routeTree.gen.ts — 11 instances (TanStack Router codegen)
+
+──── CONSOLE.LOG IN PRODUCTION CODE (29 instances) ────
+
+  HIGH PRIORITY (app code):
+  - apps/web/src/routes/api/chat.ts          — 11 console.log statements
+  - apps/web/src/lib/redis.ts                — 4 (connection/stream lifecycle)
+  - apps/web/src/lib/convex-server.ts:16     — Leaks config URL
+  - apps/web/src/providers/index.tsx:98      — User sync log
+  - apps/web/src/hooks/use-persistent-chat.ts:235 — Background stream log
+  - apps/server/convex/users.ts:83           — Auth migration log
+  - apps/server/convex/previewSeed.ts        — 5 instances
+  - apps/server/convex/backgroundStream.ts   — 3 instances (error/warn)
+
+  LOWER PRIORITY (migration scripts — 47 instances):
+  - apps/server/convex/migrations.ts         — 47 console.log/error statements
+
+  FIX: Replace with createLogger() utility from apps/server/convex/lib/logger.ts.
+       On web side, create a similar logger utility or use console only in dev.
+
+──── SWALLOWED CATCH BLOCKS (12 instances) ────
+
+  - apps/web/src/providers/index.tsx:59      — Token fetch swallowed
+  - apps/web/src/providers/index.tsx:46      — setToken(null) on error
+  - apps/web/src/lib/openrouter-oauth.ts:175 — JSON parse swallowed
+  - apps/web/src/components/ai-elements/prompt-input.tsx:789,799,803 — 3 blocks
+  - apps/web/src/components/delete-account-modal.tsx:57 — signOut after delete
+  - apps/web/src/routes/auth/sign-in.tsx:195 — .catch(() => null)
+  - apps/web/src/stores/model.ts:731         — fetchAllModels fire-and-forget
+  - apps/web/src/hooks/use-persistent-chat.ts:347 — .catch(console.error)
+  - apps/server/convex/backgroundStream.ts:468 — Parse error logged but swallowed
+  - apps/server/convex/messages.ts:133       — Intentional fallback
+  - apps/server/convex/lib/batchFileUrls.ts:32 — Intentional fallback
+
+  FIX: Add at minimum debug-level logging. For intentional fallbacks, add
+       a comment explaining why the error is swallowed.
+
+──── FUNCTIONS OVER 100 LINES (5 instances) ────
+
+  - apps/server/convex/streaming.ts          — streamLLM: 376 lines
+  - apps/web/src/hooks/use-persistent-chat.ts — usePersistentChat: 397 lines
+  - apps/web/src/routes/api/chat.ts          — POST handler: 257 lines
+  - apps/server/convex/backgroundStream.ts   — executeStream: 211 lines
+  - apps/web/src/hooks/use-persistent-chat.ts — handleSendMessage: 180 lines
+
+  FIX: Extract helper functions. For streamLLM, break into:
+       - parseSSEChunk()
+       - handleReasoningContent()
+       - flushRedisTokens()
+       - finalizeStream()
+
+──── HARDCODED URLS (should be shared constants) ────
+
+  OpenRouter API URL duplicated in 3 files:
+  - apps/server/convex/chats.ts:438          — "https://openrouter.ai/api/v1/chat/completions"
+  - apps/server/convex/backgroundStream.ts:374
+  - apps/server/convex/streaming.ts:606
+
+  Inconsistent fallback domains (BUG):
+  - apps/server/convex/chats.ts:443          — "https://osschat.io"
+  - apps/server/convex/backgroundStream.ts:379 — "https://osschat.io"
+  - apps/server/convex/streaming.ts:628      — "https://openchat.dev"  ← DIFFERENT!
+
+  FIX: Create apps/server/convex/lib/constants.ts with:
+       export const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+       export const APP_DOMAIN = "https://osschat.dev";
+
+──── MAGIC NUMBERS (14 instances) ────
+
+  - streaming.ts:502   — REDIS_TOKEN_BATCH_SIZE = 10
+  - streaming.ts:503   — REDIS_TOKEN_BATCH_INTERVAL_MS = 50
+  - streaming.ts:561   — CHUNKS_PER_UPDATE = 10
+  - streaming.ts:562   — REASONING_CHUNKS_PER_UPDATE = 1
+  - streaming.ts:563   — CANCELLATION_CHECK_INTERVAL_MS = 200
+  - streaming.ts:612   — max_tokens: 4096 (unnamed)
+  - backgroundStream.ts:338 — 5 * 60 * 1000 (timeout, unnamed)
+  - backgroundStream.ts:355-358 — 4096, 10000, 20000 (reasoning budgets)
+  - backgroundStream.ts:364 — 8192 (added to budget)
+  - backgroundStream.ts:368 — 16384 (default max_tokens)
+  - backgroundStream.ts:411 — UPDATE_INTERVAL = 5
+  - backgroundStream.ts:548 — 5 * 60 * 1000 (stale threshold)
+  - model.ts:162       — 4 * 60 * 60 * 1000 (cache TTL)
+  - chat.ts:86         — 50 (polling interval ms)
+
+  FIX: Extract to named constants in a shared config file.
+
+──── MISSING RETURN TYPES ON EXPORTS (13 instances) ────
+
+  - apps/web/src/lib/env.ts:15               — validateEnv()
+  - apps/web/src/router.tsx:7                 — getRouter()
+  - apps/web/src/lib/redis.ts:17             — getRedisClient()
+  - apps/web/src/stores/model.ts:391         — clearModelCache()
+  - apps/web/src/stores/model.ts:496         — getModelCapabilities()
+  - apps/web/src/stores/model.ts:726         — getModelById()
+  - apps/web/src/stores/model.ts:730         — prefetchModels()
+  - apps/web/src/stores/model.ts:735         — getCacheStatus()
+  - apps/server/convex/env.ts:85             — requireEnv()
+  - apps/server/convex/env.ts:96             — getEnv()
+  - apps/server/convex/env.ts:105            — isProduction()
+  - apps/web/src/lib/fuzzy-search.ts:1       — fuzzyMatch()
+  - apps/web/src/lib/fuzzy-search.ts:16      — fuzzyFilter()
+
+  FIX: Add explicit return type annotations to all exported functions.
+
+──── TODO/FIXME COMMENTS (1 instance) ────
+
+  - apps/server/convex/crons.ts:223
+    "// TODO: Send alerts if any metrics exceed thresholds"
+
+──── INCONSISTENT ERROR HANDLING ────
+
+  Mixed approaches across the codebase:
+  - console.error()  — auth-client.tsx, sign-in.tsx, chat.ts, redis.ts
+  - console.warn()   — model.ts, app-sidebar.tsx, env.ts, convex-server.ts
+  - logger.error()   — streaming.ts, crons.ts
+  - Swallowed        — prompt-input.tsx, model.ts, providers/index.tsx
+
+  FIX: Standardize on createLogger() for server code. Create equivalent
+       for web code. Reserve console.error for truly fatal issues only.
+
+================================================================================
+IV. ARCHITECTURE ISSUES
+================================================================================
+
+──── NO ERROR BOUNDARIES (P0) ────
+
+  ZERO error boundaries in the entire web app:
+  - No React ErrorBoundary components
+  - No TanStack Router errorComponent on any route
+  - No onCatchError in root route
+
+  FIX: Add ErrorBoundary in __root.tsx wrapping <Providers>.
+       Add errorComponent to key routes ($chatId, settings).
+       Add a global fallback error UI.
+
+──── GOD COMPONENTS ────
+
+  - chat-interface.tsx  — 1500+ lines, 15+ components/functions
+    Should split into: chain-of-thought.tsx, inline-error-message.tsx,
+    model-config-popover.tsx, premium-prompt-input.tsx, send-button.tsx
+
+  - app-sidebar.tsx     — 949 lines, ChatGroup takes 13 props (prop drilling)
+    Should split into: chat-group.tsx, chat-item.tsx, sidebar-header.tsx
+
+  - model-selector.tsx  — 866 lines
+    Should split into: model-item.tsx, provider-logo.tsx, model-search.tsx
+
+──── DUPLICATE useIsMobile HOOK ────
+
+  Identical implementation in two files:
+  - apps/web/src/components/chat-interface.tsx:66-77
+  - apps/web/src/components/model-selector.tsx:10-21
+
+  FIX: Extract to apps/web/src/hooks/use-is-mobile.ts
+
+──── DUPLICATE AUTH CHECK PATTERN ────
+
+  Same if (!convexClient || loading) / if (!isAuthenticated) pattern in:
+  - routes/__root.tsx
+  - routes/index.tsx
+  - routes/c/$chatId.tsx
+
+  FIX: Add a beforeLoad route guard or shared auth layout route.
+
+──── SCHEMA DUAL-WRITE (users + profiles) ────
+
+  Files: apps/server/convex/schema.ts, users.ts
+  Issue: name, avatarUrl, encryptedOpenRouterKey, fileUploadCount exist in
+         BOTH users and profiles tables. Every mutation writes to BOTH.
+         Comments say "for backwards compatibility during migration."
+  Fix: Complete the migration. Remove deprecated fields from users table.
+       Update all reads to use profiles table exclusively.
+
+──── INCONSISTENT IMPORT PATHS ────
+
+  @/ aliases used in: $chatId.tsx, settings.tsx, about.tsx, sign-in.tsx,
+                       chat-interface.tsx, model-selector.tsx, etc.
+  Relative paths used in: __root.tsx, index.tsx, auth/callback.tsx,
+                           openrouter/callback.tsx
+
+  FIX: Convert all imports to @/ aliases for consistency.
+
+──── NO ROUTE-LEVEL LOADING/ERROR COMPONENTS ────
+
+  No routes define pendingComponent or errorComponent.
+  Loading states are ad-hoc in each component.
+
+  FIX: Add pendingComponent to routes with data loading.
+       Add errorComponent to all routes.
+
+──── PROP DRILLING IN SIDEBAR ────
+
+  ChatGroup component receives 13 props, most passed through from AppSidebar.
+
+  FIX: Extract a SidebarContext or useSidebarActions hook.
+
+================================================================================
+V. DEAD CODE & NEXT.JS LEFTOVERS
+================================================================================
+
+──── NEXT.JS ARTIFACTS IN TANSTACK START PROJECT ────
+
+  [DEAD-1] apps/web/next-env.d.ts
+    Next.js type reference file. References "next", "next/image-types/global",
+    and ".next/types/routes.d.ts". MUST DELETE.
+
+  [DEAD-2] apps/server/package.json build script
+    Runs: bunx next build
+    Should run: vite build (TanStack Start uses Vite)
+
+  [DEAD-3] Root package.json verify:build script
+    "rm -rf apps/web/.next && (cd apps/web && bunx next build) && ..."
+    References .next directory. Should use vite build.
+
+  [DEAD-4] NEXT_PUBLIC_* env vars in Convex backend (11+ references)
+    Files: apps/server/convex/env.ts, previewSeed.ts
+    Variables: NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_DEPLOYMENT, NEXT_PUBLIC_APP_VERSION
+    These are server-side Convex env vars with misleading NEXT_PUBLIC_ prefix.
+    FIX: Rename to APP_URL, DEPLOYMENT, APP_VERSION.
+
+  [DEAD-5] "use client" directives (12 files — no-op in Vite)
+    - components/chat-interface.tsx
+    - components/start-screen.tsx
+    - components/openrouter-connect-modal.tsx
+    - components/ai-elements/message.tsx
+    - components/ai-elements/conversation.tsx
+    - components/ai-elements/prompt-input.tsx
+    - components/ui/sidebar.tsx
+    - components/ui/command.tsx
+    - components/ui/dialog.tsx
+    - components/ui/combobox.tsx
+    - components/ui/label.tsx
+    - components/ui/hover-card.tsx
+    FIX: Remove all "use client" directives. Not needed in TanStack Start.
+
+──── ORPHANED FILES ────
+
+  [DEAD-6] apps/web/src/components/example.tsx
+    Scaffolding template, never imported by any route or component.
+    DELETE.
+
+  [DEAD-7] apps/web/src/components/component-example.tsx
+    471-line demo component with lucide icons, form components, and UI
+    primitives. Never imported. DELETE.
+
+  [DEAD-8] apps/web/src/components/ai-elements/model-selector.tsx
+    171-line Command-dialog model selector. Superseded by
+    components/model-selector.tsx (866 lines). Not imported anywhere.
+    DELETE.
+
+  [DEAD-9] apps/web/src/stores/pending-message.ts
+    usePendingMessageStore for temporarily storing messages during chat
+    creation. Superseded by stream.ts which has its own pendingUserMessage
+    with setPendingUserMessage, consumePendingUserMessage, and
+    clearPendingUserMessage. Not imported by usePersistentChat.
+    DELETE.
+
+  [DEAD-10] apps/web/src/lib/auth-client.tsx useSession() (line 251-267)
+    Marked "Legacy hook for backward compatibility" but grep shows no
+    files import useSession from auth-client. Dead export.
+    DELETE.
+
+  [DEAD-11] apps/web/src/stores/model.ts defaultModels export (line 477)
+    Exports same value as fallbackModels. Never imported elsewhere.
+    DELETE.
+
+================================================================================
+VI. DEPENDENCY UPGRADES
+================================================================================
+
+──── PHASE 1: SAFE PATCHES (no breaking changes) ────
+
+  Root package.json:
+    @opentech1/cc-sync        2.0.12  →  2.0.13
+    @vercel/analytics          1.5.0  →  1.6.1
+    better-sqlite3            12.4.6  →  12.6.2
+    motion                   12.23.24 →  12.29.2
+    zustand                    5.0.8  →  5.0.10
+    @vitest/coverage-v8       4.0.14  →  4.0.18
+    convex                    1.29.3  →  1.31.7
+    turbo                      2.6.3  →  2.8.0
+    oxlint                   1.30.0  →  1.42.0  (12 minor versions!)
+    vitest                    4.0.14  →  4.0.18
+    ws                        8.18.3  →  8.19.0
+
+  apps/web/package.json:
+    @base-ui/react             1.0.0  →  1.1.0
+    @convex-dev/better-auth   0.10.5  →  0.10.10
+    @tanstack/react-query     5.90.12 →  5.90.20
+    @valyu/ai-sdk              1.0.3  →  1.0.8
+    better-auth                1.4.7  →  1.4.18
+    convex                    1.31.2  →  1.31.7
+    convex-helpers            0.1.108 →  0.1.111
+    lucide-react             0.562.0  →  0.563.0
+    motion                   12.23.26 →  12.29.2
+    posthog-js              1.311.0  →  1.336.4  (25 patches!)
+    react                     19.2.0  →  19.2.4
+    react-dom                 19.2.0  →  19.2.4
+    shadcn                     3.6.2  →  3.7.0
+    shiki                    3.20.0  →  3.21.0
+    use-stick-to-bottom        1.1.1  →  1.1.2
+    zustand                    5.0.9  →  5.0.10
+    ai-elements                1.6.3  →  1.8.1
+    @testing-library/react    16.3.0  →  16.3.2
+    @types/node              22.19.3  →  22.19.7
+    @types/react              19.2.7  →  19.2.10
+    @vitejs/plugin-react       5.1.1  →  5.1.2
+    jsdom                     27.3.0  →  27.4.0
+    prettier                   3.6.2  →  3.8.1
+    vite                       7.2.4  →  7.3.1
+    zod                        4.3.5  →  4.3.6
+    nitro                  3.0.1-a.1 →  3.0.1-alpha.2
+
+  apps/server/package.json:
+    @convex-dev/better-auth   0.10.5  →  0.10.10
+    @convex-dev/rate-limiter   0.3.0  →  0.3.2
+    better-auth                1.4.7  →  1.4.18
+    convex                    1.29.3  →  1.31.7
+
+  apps/extension/package.json:
+    react                     19.2.0  →  19.2.4
+    react-dom                 19.2.0  →  19.2.4
+    @types/react              19.2.7  →  19.2.10
+    wxt                      0.20.11  →  0.20.13
+
+──── PHASE 2: AI SDK UPGRADE (test streaming carefully) ────
+
+  ai                         6.0.37  →  6.0.62   (25 releases behind, PINNED)
+  @ai-sdk/react              3.0.39  →  3.0.64   (25 releases behind, PINNED)
+  @ai-sdk/devtools            0.0.6  →  0.0.10
+
+  NOTE: ai and @ai-sdk/react are PINNED (no ^ caret). These must be updated
+  manually and streaming behavior must be regression-tested.
+
+──── PHASE 3: TANSTACK STACK (upgrade all 4 together) ────
+
+  @tanstack/react-router          1.141.6  →  1.157.16  (16 minor versions)
+  @tanstack/react-start           1.141.7  →  1.157.16
+  @tanstack/react-router-ssr-query 1.141.6 →  1.157.16
+  @tanstack/router-plugin         1.141.7  →  1.157.16
+
+  IMPORTANT: After upgrading, regenerate the route tree:
+  cd apps/web && bunx tanstack-router generate
+
+──── PHASE 4: MAJOR VERSION UPGRADES (need migration/testing) ────
+
+  @ai-sdk/provider-utils    3.0.17  →  4.0.11   ⚠️  MAJOR (3→4)
+    Check compatibility with ai@6.0.62. May have breaking API changes.
+
+  vitest (web only)          3.2.4  →  4.0.18   ⚠️  MAJOR (3→4)
+    Root already has vitest@4.x. Web is stuck on 3.x. Align.
+
+  vite-tsconfig-paths        5.1.4  →  6.0.5    ⚠️  MAJOR (5→6)
+    Check for breaking changes in path resolution behavior.
+
+  streamdown                1.6.10  →  2.1.0    ⚠️  MAJOR (1→2)
+    Check for API changes in markdown streaming.
+
+  @types/node              22.19.3  →  25.1.0   ⚠️  MAJOR (22→25)
+    Only upgrade if targeting Node 25. Likely stay on 22.x for now.
+
+================================================================================
+VII. VERSION MISMATCHES WITHIN MONOREPO
+================================================================================
+
+  Package        │ Root      │ Web       │ Server    │ Target
+  ───────────────┼───────────┼───────────┼───────────┼──────────
+  convex         │ ^1.29.3   │ ^1.31.2   │ ^1.29.3   │ ^1.31.7
+  better-auth    │ —         │ ^1.4.7    │ 1.4.7 PIN │ ^1.4.18
+  vitest         │ ^4.0.13   │ ^3.0.5    │ —         │ ^4.0.18
+  motion         │ ^12.23.24 │ ^12.23.26 │ —         │ ^12.29.2
+  zustand        │ ^5.0.8    │ ^5.0.9    │ —         │ ^5.0.10
+
+  FIX: Align all packages to the same version range. Consider using
+       Bun workspace catalog or overrides for shared dependencies.
+
+  NOTE: better-auth in server is PINNED (no ^). This should be ^1.4.18
+        to match web, unless there's a known regression in newer versions.
+
+================================================================================
+VIII. RECOMMENDED FIX ORDER
+================================================================================
+
+──── PHASE 0: IMMEDIATE (security + ship blockers) ────
+
+  1. [SEC-1/2/3] Add authentication to /api/chat, /api/typing, /stream-llm
+     Derive userId server-side from session. Never trust client-supplied userId.
+     EFFORT: Medium | IMPACT: Critical
+
+  2. [ARCH] Add React error boundary in __root.tsx
+     Wrap <Providers> in ErrorBoundary. Add errorComponent to routes.
+     EFFORT: Small | IMPACT: Critical
+
+  3. [DEAD-2/3] Fix build scripts — change "next build" to "vite build"
+     Update apps/server/package.json build script and root verify:build.
+     EFFORT: Tiny | IMPACT: Critical (builds may fail)
+
+  4. [LINT] Fix 4 eslint errors in use-persistent-chat.ts
+     Remove unnecessary optional chains.
+     EFFORT: Tiny | IMPACT: Low (blocks CI)
+
+──── PHASE 1: HIGH PRIORITY (security hardening) ────
+
+  5. [SEC-4] Replace CORS * with explicit origins on streaming endpoint
+  6. [SEC-5] Fix session cookie to be httpOnly (server-side)
+  7. [SEC-7] Add rate limiting to /api/chat
+  8. [SEC-8] Sanitize error messages returned to clients
+  9. [SEC-6] Stop passing API keys through mutation args
+
+──── PHASE 2: DEPENDENCY UPGRADES ────
+
+  10. Phase 1 deps — safe patches (bun update)
+  11. Phase 2 deps — AI SDK (ai@6.0.62, @ai-sdk/react@3.0.64)
+  12. Phase 3 deps — TanStack stack (all 4 packages to 1.157.16)
+  13. Fix version mismatches (convex, better-auth, vitest, motion, zustand)
+
+──── PHASE 3: CLEANUP (dead code & Next.js leftovers) ────
+
+  14. [DEAD-1] Delete apps/web/next-env.d.ts
+  15. [DEAD-5] Remove "use client" from 12 files
+  16. [DEAD-4] Rename NEXT_PUBLIC_* env vars in Convex backend
+  17. [DEAD-6/7/8/9/10/11] Delete orphaned files:
+      - components/example.tsx
+      - components/component-example.tsx
+      - components/ai-elements/model-selector.tsx
+      - stores/pending-message.ts
+      - auth-client.tsx useSession() export
+      - model.ts defaultModels export
+
+──── PHASE 4: CODE QUALITY ────
+
+  18. Extract shared constants (OpenRouter URL, app domain, magic numbers)
+  19. Replace console.log with createLogger() in production code
+  20. Add return types to 13 exported functions
+  21. Add debug logging to swallowed catch blocks
+  22. Standardize import paths to @/ aliases
+
+──── PHASE 5: ARCHITECTURE REFACTORING ────
+
+  23. Break up chat-interface.tsx (1500+ lines → 5-6 files)
+  24. Break up app-sidebar.tsx (949 lines), extract SidebarContext
+  25. Break up model-selector.tsx (866 lines)
+  26. Extract useIsMobile hook to shared hooks/
+  27. Add route-level auth guards (replace duplicated auth checks)
+  28. Complete users→profiles migration (remove dual-write)
+  29. Break up streamLLM function (376 lines → helper functions)
+
+──── PHASE 6: MAJOR VERSION UPGRADES (needs testing) ────
+
+  30. @ai-sdk/provider-utils 3→4
+  31. vitest (web) 3→4
+  32. vite-tsconfig-paths 5→6
+  33. streamdown 1→2
+
+================================================================================
+END OF PLAN
+================================================================================

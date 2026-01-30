@@ -11,6 +11,7 @@
 
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { requireAuthUserId } from "./lib/auth";
 
 // Daily search limit per user (not exposed to clients)
 const DAILY_SEARCH_LIMIT = 50;
@@ -35,7 +36,8 @@ export const checkSearchLimit = query({
 		remaining: v.number(),
 	}),
 	handler: async (ctx, args) => {
-		const user = await ctx.db.get(args.userId);
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const user = await ctx.db.get(userId);
 
 		if (!user) {
 			// User not found - cannot search
@@ -74,7 +76,8 @@ export const incrementSearchUsage = mutation({
 		remaining: v.number(),
 	}),
 	handler: async (ctx, args) => {
-		const user = await ctx.db.get(args.userId);
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const user = await ctx.db.get(userId);
 
 		if (!user) {
 			throw new Error("User not found");
@@ -99,7 +102,7 @@ export const incrementSearchUsage = mutation({
 		}
 
 		// Update user with new count and date
-		await ctx.db.patch(args.userId, {
+		await ctx.db.patch(userId, {
 			searchUsageCount: newCount,
 			searchUsageDate: currentDate,
 			updatedAt: Date.now(),

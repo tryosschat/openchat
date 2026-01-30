@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query, httpAction, internalMutation } from "./_generated/server";
+import { mutation, query, httpAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, components, internal } from "./_generated/api";
 import {
 	PersistentTextStreaming,
@@ -9,6 +9,9 @@ import {
 import type { Id } from "./_generated/dataModel";
 import { redisStreamOps } from "./lib/redisRest";
 import { createLogger } from "./lib/logger";
+import { requireAuthUserId } from "./lib/auth";
+import { getCorsOrigin } from "./lib/origins";
+import { decryptSecret } from "./lib/crypto";
 
 // Initialize the persistent text streaming component
 export const persistentTextStreaming = new PersistentTextStreaming(
@@ -35,9 +38,10 @@ export const createStream = mutation({
 		messageId: v.id("messages"),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Verify user owns the chat
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+		if (!chat || chat.userId !== userId || chat.deletedAt) {
 			throw new Error("Chat not found or access denied");
 		}
 
@@ -54,7 +58,7 @@ export const createStream = mutation({
 			status: "streaming",
 			streamId: streamId as string,
 			createdAt: now,
-			userId: args.userId,
+			userId,
 		});
 
 		// Update chat's lastMessageAt
@@ -117,6 +121,24 @@ export const getStreamBody = query({
 
 		// Fallback: return stream body with null reasoning (may be empty/null)
 		return streamBody ? { ...streamBody, reasoning: null, thinkingTimeMs: null } : streamBody;
+	},
+});
+
+export const getStreamMessage = internalQuery({
+	args: {
+		messageId: v.id("messages"),
+		streamId: v.string(),
+	},
+	returns: v.union(
+		v.object({
+			userId: v.id("users"),
+		}),
+		v.null(),
+	),
+	handler: async (ctx, args) => {
+		const message = await ctx.db.get(args.messageId);
+		if (!message || message.streamId !== args.streamId || !message.userId) return null;
+		return { userId: message.userId };
 	},
 });
 
@@ -184,6 +206,7 @@ export const cancelStream = mutation({
 		success: v.boolean(),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Find the message associated with this stream
 		const message = await ctx.db
 			.query("messages")
@@ -195,7 +218,7 @@ export const cancelStream = mutation({
 		}
 
 		// Verify user owns the message
-		if (message.userId !== args.userId) {
+		if (message.userId !== userId) {
 			return { success: false };
 		}
 
@@ -308,11 +331,12 @@ export const fixStuckStreamingMessages = mutation({
 		fixedMessageIds: v.array(v.id("messages")),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Find all streaming messages for this user
 		const streamingMessages = await ctx.db
 			.query("messages")
 			.withIndex("by_user_status", (q) =>
-				q.eq("userId", args.userId).eq("status", "streaming")
+				q.eq("userId", userId).eq("status", "streaming")
 			)
 			.collect();
 
@@ -431,9 +455,10 @@ export const prepareChat = mutation({
 		assistantMessageId: v.id("messages"),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Verify user owns the chat
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+		if (!chat || chat.userId !== userId || chat.deletedAt) {
 			throw new Error("Chat not found or access denied");
 		}
 
@@ -447,7 +472,7 @@ export const prepareChat = mutation({
 			content: args.userContent,
 			status: "completed",
 			createdAt: now,
-			userId: args.userId,
+			userId,
 		});
 
 		// Create the persistent stream for assistant response
@@ -462,7 +487,7 @@ export const prepareChat = mutation({
 			status: "streaming",
 			streamId: streamId as string,
 			createdAt: now + 1, // Slightly after user message
-			userId: args.userId,
+			userId,
 		});
 
 		// Update chat's lastMessageAt and set status to streaming
@@ -485,12 +510,13 @@ export const prepareChat = mutation({
 type StreamRequestBody = {
 	streamId: string;
 	messageId: string;
-	apiKey: string;
 	modelId: string;
+	apiKey?: string;
 	messages: Array<{
 		role: string;
 		content: string;
 	}>;
+	provider?: "osschat" | "openrouter";
 	reasoningConfig?: {
 		enabled: boolean;
 		effort?: "low" | "medium" | "high";
@@ -513,31 +539,96 @@ const REDIS_TOKEN_BATCH_INTERVAL_MS = 50; // Or every 50ms
  * The X-Stream-Id header contains the Redis stream ID for client connection.
  */
 export const streamLLM = httpAction(async (ctx, request) => {
+	const origin = request.headers.get("origin");
+	const corsOrigin = getCorsOrigin(origin);
+	const withCorsHeaders = (base?: HeadersInit) => {
+		const headers = new Headers(base);
+		if (corsOrigin) {
+			headers.set("Access-Control-Allow-Origin", corsOrigin);
+			headers.set("Vary", "Origin");
+		}
+		return headers;
+	};
 	// Handle CORS preflight
 	if (request.method === "OPTIONS") {
+		if (origin && !corsOrigin) {
+			return new Response(null, { status: 403 });
+		}
 		return new Response(null, {
 			status: 204,
-			headers: {
-				"Access-Control-Allow-Origin": "*",
+			headers: withCorsHeaders({
 				"Access-Control-Allow-Methods": "POST, OPTIONS",
 				"Access-Control-Allow-Headers": "Content-Type, Authorization",
 				"Access-Control-Max-Age": "86400",
-			},
+			}),
 		});
 	}
 
 	try {
-		const body = (await request.json()) as StreamRequestBody;
-		const { streamId, messageId, apiKey, modelId, messages, reasoningConfig } = body;
+		if (origin && !corsOrigin) {
+			return new Response(JSON.stringify({ error: "Invalid origin" }), {
+				status: 403,
+				headers: withCorsHeaders({ "Content-Type": "application/json" }),
+			});
+		}
 
-		if (!streamId || !apiKey || !modelId || !messages) {
+		const body = (await request.json()) as StreamRequestBody;
+		const { streamId, messageId, modelId, messages, reasoningConfig, provider } = body;
+
+		if (!streamId || !messageId || !modelId || !messages) {
 			return new Response(
 				JSON.stringify({ error: "Missing required fields" }),
 				{
 					status: 400,
-					headers: { "Content-Type": "application/json" },
+					headers: withCorsHeaders({ "Content-Type": "application/json" }),
 				}
 			);
+		}
+
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return new Response(JSON.stringify({ error: "Unauthorized" }), {
+				status: 401,
+				headers: withCorsHeaders({ "Content-Type": "application/json" }),
+			});
+		}
+
+		const user = await ctx.runQuery(internal.users.getByExternalIdInternal, {
+			externalId: identity.subject,
+		});
+		if (!user) {
+			return new Response(JSON.stringify({ error: "Unauthorized" }), {
+				status: 401,
+				headers: withCorsHeaders({ "Content-Type": "application/json" }),
+			});
+		}
+
+		const message = await ctx.runQuery(internal.streaming.getStreamMessage, {
+			messageId: messageId as Id<"messages">,
+			streamId,
+		});
+		if (!message || message.userId !== user._id) {
+			return new Response(JSON.stringify({ error: "Unauthorized" }), {
+				status: 403,
+				headers: withCorsHeaders({ "Content-Type": "application/json" }),
+			});
+		}
+
+		const requestProvider = provider ?? "osschat";
+		let apiKey: string | null = null;
+		if (requestProvider === "osschat") {
+			apiKey = process.env.OPENROUTER_API_KEY ?? null;
+		} else {
+			const encryptedKey = await ctx.runQuery(api.users.getOpenRouterKey, {
+				userId: user._id,
+			});
+			apiKey = encryptedKey ? await decryptSecret(encryptedKey) : null;
+		}
+		if (!apiKey) {
+			return new Response(JSON.stringify({ error: "API key not configured" }), {
+				status: 400,
+				headers: withCorsHeaders({ "Content-Type": "application/json" }),
+			});
 		}
 
 		// Build the OpenRouter request
@@ -860,8 +951,10 @@ export const streamLLM = httpAction(async (ctx, request) => {
 
 		// Add CORS headers
 		const headers = new Headers(streamResponse.headers);
-		headers.set("Access-Control-Allow-Origin", "*");
-		headers.set("Vary", "Origin");
+		if (corsOrigin) {
+			headers.set("Access-Control-Allow-Origin", corsOrigin);
+			headers.set("Vary", "Origin");
+		}
 
 		// Add Redis stream ID header for client SSE connection
 		if (redisStreamId) {
@@ -877,14 +970,11 @@ export const streamLLM = httpAction(async (ctx, request) => {
 		logger.error("Stream error", error);
 		return new Response(
 			JSON.stringify({
-				error: error instanceof Error ? error.message : "Stream failed",
+				error: "Stream failed",
 			}),
 			{
 				status: 500,
-				headers: {
-					"Content-Type": "application/json",
-					"Access-Control-Allow-Origin": "*",
-				},
+				headers: withCorsHeaders({ "Content-Type": "application/json" }),
 			}
 		);
 	}

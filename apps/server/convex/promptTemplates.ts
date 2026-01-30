@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { rateLimiter } from "./lib/rateLimiter";
 import { throwRateLimitError } from "./lib/rateLimitUtils";
 import { sanitizeText } from "./lib/sanitize";
+import { requireAuthUserId } from "./lib/auth";
 
 // Input sanitization for template fields
 const MAX_NAME_LENGTH = 100;
@@ -73,6 +74,7 @@ export const list = query({
 		nextCursor: v.union(v.string(), v.null()),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		let limit = args.limit ?? DEFAULT_TEMPLATE_LIST_LIMIT;
 
 		// Validate and enforce maximum limit
@@ -86,7 +88,7 @@ export const list = query({
 		let query = ctx.db
 			.query("promptTemplates")
 			.withIndex("by_user", (q) =>
-				q.eq("userId", args.userId).eq("deletedAt", undefined)
+				q.eq("userId", userId).eq("deletedAt", undefined)
 			)
 			.order("desc");
 
@@ -128,8 +130,9 @@ export const get = query({
 	},
 	returns: v.union(promptTemplateDoc, v.null()),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const template = await ctx.db.get(args.templateId);
-		if (!template || template.userId !== args.userId || template.deletedAt) {
+		if (!template || template.userId !== userId || template.deletedAt) {
 			return null;
 		}
 		return template;
@@ -143,10 +146,11 @@ export const getByCommand = query({
 	},
 	returns: v.union(promptTemplateDoc, v.null()),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const templates = await ctx.db
 			.query("promptTemplates")
 			.withIndex("by_command", (q) =>
-				q.eq("userId", args.userId).eq("command", args.command)
+				q.eq("userId", userId).eq("command", args.command)
 			)
 			.filter(q => q.eq(q.field("deletedAt"), undefined))
 			.first();
@@ -168,9 +172,10 @@ export const create = mutation({
 	},
 	returns: v.object({ templateId: v.id("promptTemplates") }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limiting
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "templateCreate", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -203,7 +208,7 @@ export const create = mutation({
 		const existing = await ctx.db
 			.query("promptTemplates")
 			.withIndex("by_command", (q) =>
-				q.eq("userId", args.userId).eq("command", sanitizedCommand)
+				q.eq("userId", userId).eq("command", sanitizedCommand)
 			)
 			.filter(q => q.eq(q.field("deletedAt"), undefined))
 			.first();
@@ -214,7 +219,7 @@ export const create = mutation({
 
 		const now = Date.now();
 		const templateId = await ctx.db.insert("promptTemplates", {
-			userId: args.userId,
+			userId,
 			name: sanitizedName,
 			command: sanitizedCommand,
 			template: sanitizedTemplate,
@@ -244,9 +249,10 @@ export const update = mutation({
 	},
 	returns: v.object({ ok: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limiting
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "templateUpdate", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -254,7 +260,7 @@ export const update = mutation({
 		}
 
 		const existing = await ctx.db.get(args.templateId);
-		if (!existing || existing.userId !== args.userId || existing.deletedAt) {
+		if (!existing || existing.userId !== userId || existing.deletedAt) {
 			return { ok: false };
 		}
 
@@ -271,7 +277,7 @@ export const update = mutation({
 			const duplicate = await ctx.db
 				.query("promptTemplates")
 				.withIndex("by_command", (q) =>
-					q.eq("userId", args.userId).eq("command", sanitizedCommand)
+					q.eq("userId", userId).eq("command", sanitizedCommand)
 				)
 				.filter(q => q.eq(q.field("deletedAt"), undefined))
 				.first();
@@ -309,8 +315,9 @@ export const autoSave = mutation({
 	},
 	returns: v.object({ ok: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const existing = await ctx.db.get(args.templateId);
-		if (!existing || existing.userId !== args.userId || existing.deletedAt) {
+		if (!existing || existing.userId !== userId || existing.deletedAt) {
 			return { ok: false };
 		}
 
@@ -337,9 +344,10 @@ export const remove = mutation({
 	},
 	returns: v.object({ ok: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limiting
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "templateDelete", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -347,7 +355,7 @@ export const remove = mutation({
 		}
 
 		const template = await ctx.db.get(args.templateId);
-		if (!template || template.userId !== args.userId || template.deletedAt) {
+		if (!template || template.userId !== userId || template.deletedAt) {
 			return { ok: false };
 		}
 
@@ -367,8 +375,9 @@ export const incrementUsage = mutation({
 	},
 	returns: v.object({ ok: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const template = await ctx.db.get(args.templateId);
-		if (!template || template.userId !== args.userId || template.deletedAt) {
+		if (!template || template.userId !== userId || template.deletedAt) {
 			return { ok: false };
 		}
 

@@ -10,8 +10,6 @@
  * The internal scroll area uses absolute positioning and relies on flex-1 for sizing.
  */
 
-"use client";
-
 import { ArrowDownIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ComponentProps, RefObject } from "react";
@@ -157,4 +155,3 @@ export const ConversationEmptyState = ({
     )}
   </div>
 );
-

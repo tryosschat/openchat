@@ -7,8 +7,6 @@
  * - File attachment support
  */
 
-"use client";
-
 import { createContext, useContext } from "react";
 import { Streamdown } from "streamdown";
 import type { ComponentProps, ReactNode } from "react";

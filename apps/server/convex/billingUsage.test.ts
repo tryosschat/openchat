@@ -9,7 +9,7 @@
  */
 
 import { convexTest } from "convex-test";
-import { expect, test, describe, beforeEach } from "vitest";
+import { expect, test, describe, beforeEach, afterEach, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
@@ -26,6 +26,10 @@ function createConvexTest() {
 	const t = convexTest(schema, modules);
 	rateLimiter.register(t);
 	return t;
+}
+
+function asExternalId(t: any, externalId: string) {
+	return t.withIdentity({ subject: externalId });
 }
 
 // ---------------------------------------------------------------------------
@@ -195,11 +199,13 @@ describe("calculateUsageCents", () => {
 describe("users.incrementAiUsage", () => {
 	let t: ReturnType<typeof convexTest>;
 	let userId: Id<"users">;
+	let externalId: string;
 
 	beforeEach(async () => {
 		t = createConvexTest();
-		const result = await t.mutation(api.users.ensure, {
-			externalId: "billing_test_user",
+		externalId = "billing_test_user";
+		const result = await asExternalId(t, externalId).mutation(api.users.ensure, {
+			externalId,
 			email: "billing@test.com",
 		});
 		userId = result.userId;
@@ -333,22 +339,32 @@ describe("backgroundStream.startStream - daily limit enforcement", () => {
 	let t: ReturnType<typeof convexTest>;
 	let userId: Id<"users">;
 	let chatId: Id<"chats">;
+	let externalId: string;
 
 	beforeEach(async () => {
+		// startStream schedules an internal function via ctx.scheduler.runAfter(0,...)
+		// which uses setTimeout in convex-test. Use fake timers so scheduled work
+		// doesn't leak across test files as "Unhandled error between tests".
+		vi.useFakeTimers();
 		t = createConvexTest();
-		const result = await t.mutation(api.users.ensure, {
-			externalId: "stream_limit_user",
+		externalId = "stream_limit_user";
+		const result = await asExternalId(t, externalId).mutation(api.users.ensure, {
+			externalId,
 			email: "stream@test.com",
 		});
 		userId = result.userId;
-		const chatResult = await t.mutation(api.chats.create, {
+		const chatResult = await asExternalId(t, externalId).mutation(api.chats.create, {
 			userId,
 			title: "Test Chat",
 		});
 		chatId = chatResult.chatId;
 	});
 
-	test("rejects osschat stream when daily limit is reached", async () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+		test("rejects osschat stream when daily limit is reached", async () => {
 		await t.run(async (ctx) => {
 			const today = new Date().toISOString().split("T")[0];
 			await ctx.db.patch(userId, {
@@ -357,32 +373,32 @@ describe("backgroundStream.startStream - daily limit enforcement", () => {
 			});
 		});
 
-		await expect(
-			t.mutation(api.backgroundStream.startStream, {
-				chatId,
-				userId,
-				messageId: "msg_1",
-				model: "test/model",
-				provider: "osschat",
+			await expect(
+				asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
+					chatId,
+					userId,
+					messageId: "msg_1",
+					model: "test/model",
+					provider: "osschat",
 				messages: [{ role: "user", content: "Hello" }],
 			}),
 		).rejects.toThrow("Daily usage limit reached");
 	});
 
-	test("allows osschat stream when under daily limit", async () => {
-		const jobId = await t.mutation(api.backgroundStream.startStream, {
-			chatId,
-			userId,
-			messageId: "msg_2",
-			model: "test/model",
-			provider: "osschat",
+		test("allows osschat stream when under daily limit", async () => {
+			const jobId = await asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
+				chatId,
+				userId,
+				messageId: "msg_2",
+				model: "test/model",
+				provider: "osschat",
 			messages: [{ role: "user", content: "Hello" }],
 		});
 
 		expect(jobId).toBeDefined();
 	});
 
-	test("allows openrouter stream regardless of limit", async () => {
+		test("allows openrouter stream regardless of limit", async () => {
 		await t.run(async (ctx) => {
 			const today = new Date().toISOString().split("T")[0];
 			await ctx.db.patch(userId, {
@@ -391,36 +407,35 @@ describe("backgroundStream.startStream - daily limit enforcement", () => {
 			});
 		});
 
-		const jobId = await t.mutation(api.backgroundStream.startStream, {
-			chatId,
-			userId,
-			messageId: "msg_3",
-			model: "test/model",
+			const jobId = await asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
+				chatId,
+				userId,
+				messageId: "msg_3",
+				model: "test/model",
 			provider: "openrouter",
-			apiKey: "test-key",
 			messages: [{ role: "user", content: "Hello" }],
 		});
 
 		expect(jobId).toBeDefined();
 	});
 
-	test("rejects concurrent osschat streams for same user", async () => {
-		await t.mutation(api.backgroundStream.startStream, {
-			chatId,
-			userId,
-			messageId: "msg_4",
-			model: "test/model",
-			provider: "osschat",
-			messages: [{ role: "user", content: "Hello" }],
-		});
+		test("rejects concurrent osschat streams for same user", async () => {
+			await asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
+				chatId,
+				userId,
+				messageId: "msg_4",
+				model: "test/model",
+				provider: "osschat",
+				messages: [{ role: "user", content: "Hello" }],
+			});
 
-		const chatResult2 = await t.mutation(api.chats.create, {
-			userId,
-			title: "Test Chat 2",
-		});
+			const chatResult2 = await asExternalId(t, externalId).mutation(api.chats.create, {
+				userId,
+				title: "Test Chat 2",
+			});
 
 		await expect(
-			t.mutation(api.backgroundStream.startStream, {
+			asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
 				chatId: chatResult2.chatId,
 				userId,
 				messageId: "msg_5",
@@ -439,7 +454,7 @@ describe("backgroundStream.startStream - daily limit enforcement", () => {
 			});
 		});
 
-		const jobId = await t.mutation(api.backgroundStream.startStream, {
+		const jobId = await asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
 			chatId,
 			userId,
 			messageId: "msg_6",

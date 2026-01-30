@@ -10,16 +10,82 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { webSearch } from "@valyu/ai-sdk";
 import { api } from "@server/convex/_generated/api";
 import type { Id } from "@server/convex/_generated/dataModel";
-import { redis } from "@/lib/redis";
-import { convexServerClient } from "@/lib/convex-server";
+import { getRedisClient, redis } from "@/lib/redis";
+import { decryptSecret } from "@/lib/server-crypto";
+import { getAuthUser, getConvexClientForRequest, getConvexUserId, isSameOrigin } from "@/lib/server-auth";
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const VALYU_API_KEY = process.env.VALYU_API_KEY;
+const CHAT_RATE_LIMIT_WINDOW_SECONDS = 60;
+const CHAT_RATE_LIMIT_MAX_USER = 30;
+const CHAT_RATE_LIMIT_MAX_IP = 60;
+
+function getRequestIp(request: Request): string | null {
+	const forwardedFor = request.headers.get("x-forwarded-for");
+	if (forwardedFor) {
+		return forwardedFor.split(",")[0]?.trim() || null;
+	}
+	return (
+		request.headers.get("x-real-ip") ||
+		request.headers.get("cf-connecting-ip") ||
+		request.headers.get("true-client-ip") ||
+		null
+	);
+}
+
+async function enforceRateLimit(request: Request, userId: string): Promise<Response | null> {
+	const redisReady = await redis.ensureConnected();
+	if (!redisReady) return null;
+	const client = getRedisClient();
+	if (!client) return null;
+
+	const ip = getRequestIp(request);
+	const userKey = `rate:chat:user:${userId}`;
+	const userCount = await client.incr(userKey);
+	if (userCount === 1) {
+		await client.expire(userKey, CHAT_RATE_LIMIT_WINDOW_SECONDS);
+	}
+	if (userCount > CHAT_RATE_LIMIT_MAX_USER) {
+		return json(
+			{ error: "Rate limit exceeded. Please try again shortly." },
+			{ status: 429 },
+		);
+	}
+
+	if (ip) {
+		const ipKey = `rate:chat:ip:${ip}`;
+		const ipCount = await client.incr(ipKey);
+		if (ipCount === 1) {
+			await client.expire(ipKey, CHAT_RATE_LIMIT_WINDOW_SECONDS);
+		}
+		if (ipCount > CHAT_RATE_LIMIT_MAX_IP) {
+			return json(
+				{ error: "Rate limit exceeded. Please try again shortly." },
+				{ status: 429 },
+			);
+		}
+	}
+
+	return null;
+}
+
 
 export const Route = createFileRoute("/api/chat")({
 	server: {
 		handlers: {
 			GET: async ({ request }) => {
+				if (!isSameOrigin(request)) {
+					return json({ error: "Invalid origin" }, { status: 403 });
+				}
+				const authUser = await getAuthUser(request);
+				if (!authUser) {
+					return json({ error: "Unauthorized" }, { status: 401 });
+				}
+				const userId = await getConvexUserId(authUser, request);
+				if (!userId) {
+					return json({ error: "Unauthorized" }, { status: 401 });
+				}
+
 				const url = new URL(request.url);
 				const chatId = url.searchParams.get("chatId");
 				const lastId = url.searchParams.get("lastId") || "0";
@@ -39,6 +105,9 @@ export const Route = createFileRoute("/api/chat")({
 				if (!meta) {
 					console.log("[Chat API GET] No stream metadata found");
 					return new Response(null, { status: 204 });
+				}
+				if (meta.userId !== userId) {
+					return json({ error: "Unauthorized" }, { status: 403 });
 				}
 				console.log("[Chat API GET] Stream meta:", meta.status);
 
@@ -103,6 +172,20 @@ export const Route = createFileRoute("/api/chat")({
 
 			POST: async ({ request }) => {
 				const abortSignal = request.signal;
+				if (!isSameOrigin(request)) {
+					return json({ error: "Invalid origin" }, { status: 403 });
+				}
+				const authUser = await getAuthUser(request);
+				if (!authUser) {
+					return json({ error: "Unauthorized" }, { status: 401 });
+				}
+				const convexUserId = await getConvexUserId(authUser, request);
+				if (!convexUserId) {
+					return json({ error: "Unauthorized" }, { status: 401 });
+				}
+
+				const rateLimitResponse = await enforceRateLimit(request, convexUserId);
+				if (rateLimitResponse) return rateLimitResponse;
 				const redisReady = await redis.ensureConnected();
 				console.log("[Chat API POST] Redis ready:", redisReady);
 
@@ -112,12 +195,10 @@ export const Route = createFileRoute("/api/chat")({
 						messages,
 						model,
 						provider = "osschat",
-						apiKey,
 						enableWebSearch = false,
 						reasoningEffort,
 						maxSteps = 5,
 						chatId,
-						userId,
 					} = body;
 
 					if (!messages || !Array.isArray(messages)) {
@@ -126,10 +207,6 @@ export const Route = createFileRoute("/api/chat")({
 
 					if (!model || typeof model !== "string") {
 						return json({ error: "model is required and must be a string" }, { status: 400 });
-					}
-
-					if (provider === "openrouter" && !apiKey) {
-						return json({ error: "apiKey is required for Personal OpenRouter" }, { status: 400 });
 					}
 
 					if (provider === "osschat" && !OPENROUTER_API_KEY) {
@@ -154,7 +231,22 @@ export const Route = createFileRoute("/api/chat")({
 						}
 					}
 
-					const openrouterKey = provider === "osschat" ? OPENROUTER_API_KEY! : apiKey!;
+					let openrouterKey: string | null = null;
+					if (provider === "osschat") {
+						openrouterKey = OPENROUTER_API_KEY ?? null;
+					} else {
+						const convexClient = await getConvexClientForRequest(request);
+						if (!convexClient) {
+							return json({ error: "Unauthorized" }, { status: 401 });
+						}
+						const encryptedKey = await convexClient.query(api.users.getOpenRouterKey, {
+							userId: convexUserId,
+						});
+						openrouterKey = encryptedKey ? decryptSecret(encryptedKey) : null;
+					}
+					if (!openrouterKey) {
+						return json({ error: "OpenRouter API key not configured" }, { status: 400 });
+					}
 					const openRouter = createOpenRouter({ apiKey: openrouterKey });
 					const aiModel = openRouter(model);
 
@@ -191,20 +283,21 @@ export const Route = createFileRoute("/api/chat")({
 					const messageId = generateId();
 					const streamId = `${chatId}-${messageId}`;
 
-					if (chatId && userId && redisReady) {
+					if (chatId && redisReady) {
 						console.log("[Chat API POST] Initializing Redis stream for chat:", chatId);
-						await redis.stream.init(chatId, userId, messageId);
+						await redis.stream.init(chatId, convexUserId, messageId);
 					}
 
-					if (chatId && userId) {
-						if (!convexServerClient) {
-							console.error("[Chat API] convexServerClient is null - VITE_CONVEX_URL not set?");
+					if (chatId) {
+						const convexClient = await getConvexClientForRequest(request);
+						if (!convexClient) {
+							console.error("[Chat API] Convex auth token unavailable");
 						} else {
 							try {
 								console.log("[Chat API] Setting active stream:", streamId);
-								await convexServerClient.mutation(api.chats.setActiveStream, {
+								await convexClient.mutation(api.chats.setActiveStream, {
 									chatId: chatId as Id<"chats">,
-									userId: userId as Id<"users">,
+									userId: convexUserId,
 									streamId,
 								});
 								console.log("[Chat API] Active stream set successfully");
@@ -282,13 +375,16 @@ export const Route = createFileRoute("/api/chat")({
 									console.log("[Chat API POST] Redis stream completed");
 								}
 
-								if (chatId && userId && convexServerClient) {
-									await convexServerClient.mutation(api.chats.setActiveStream, {
-										chatId: chatId as Id<"chats">,
-										userId: userId as Id<"users">,
-										streamId: null,
-									});
-								}
+					if (chatId) {
+						const convexClient = await getConvexClientForRequest(request);
+						if (convexClient) {
+							await convexClient.mutation(api.chats.setActiveStream, {
+								chatId: chatId as Id<"chats">,
+								userId: convexUserId,
+								streamId: null,
+							});
+						}
+					}
 
 								controller.close();
 							} catch (err) {
@@ -299,7 +395,8 @@ export const Route = createFileRoute("/api/chat")({
 									return;
 								}
 								
-								const errorMessage = err instanceof Error ? err.message : "Stream error";
+							const errorMessage = "Stream failed";
+							console.error("[Chat API] Stream error", err);
 
 								controller.enqueue(
 									encoder.encode(
@@ -347,16 +444,11 @@ export const Route = createFileRoute("/api/chat")({
 						}
 
 						if (error.message.includes("model") || error.message.includes("Model")) {
-							return json({ error: `Model error: ${error.message}` }, { status: 400 });
+							return json({ error: "Model error. Please try a different model." }, { status: 400 });
 						}
-
-						return json(
-							{ error: error.message || "An error occurred while processing your request" },
-							{ status: 500 },
-						);
 					}
 
-					return json({ error: "An unexpected error occurred" }, { status: 500 });
+					return json({ error: "Request failed. Please try again." }, { status: 500 });
 				}
 			},
 		},

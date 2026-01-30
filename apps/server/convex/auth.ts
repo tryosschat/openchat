@@ -6,12 +6,14 @@ import { oAuthProxy } from "better-auth/plugins";
 import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { query } from "./_generated/server";
+import { requireEnv } from "./env";
+import { getAllowedOrigins } from "./lib/origins";
 
 /**
  * Production Convex site URL - used for OAuth callbacks.
  * All OAuth flows (including from preview environments) route through production.
  */
-const PRODUCTION_CONVEX_SITE_URL = "https://outgoing-setter-201.convex.site";
+const PRODUCTION_CONVEX_SITE_URL = process.env.PRODUCTION_CONVEX_SITE_URL;
 
 /**
  * Better Auth component client for Convex integration.
@@ -57,6 +59,9 @@ export const createAuth = (
 	// Add oAuthProxy plugin for preview environments
 	// This routes OAuth callbacks through production and redirects back to preview
 	if (isPreview) {
+		if (!PRODUCTION_CONVEX_SITE_URL) {
+			throw new Error("PRODUCTION_CONVEX_SITE_URL environment variable is not set");
+		}
 		plugins.push(
 			oAuthProxy({
 				productionURL: PRODUCTION_CONVEX_SITE_URL,
@@ -64,6 +69,13 @@ export const createAuth = (
 			}) as unknown as typeof plugins[number]
 		);
 	}
+
+	const trustedOrigins = [
+		PRODUCTION_CONVEX_SITE_URL,
+		convexSiteUrl,
+		siteUrl,
+		...getAllowedOrigins(),
+	].filter((origin): origin is string => Boolean(origin));
 
 	const auth = betterAuth({
 		// Disable logging when createAuth is called just to generate options
@@ -79,8 +91,8 @@ export const createAuth = (
 		},
 		socialProviders: {
 			github: {
-				clientId: process.env.GITHUB_CLIENT_ID!,
-				clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+				clientId: requireEnv("GITHUB_CLIENT_ID"),
+				clientSecret: requireEnv("GITHUB_CLIENT_SECRET"),
 				// Use current environment's URL for OAuth callbacks
 				redirectURI: `${convexSiteUrl}/api/auth/callback/github`,
 			},
@@ -99,17 +111,7 @@ export const createAuth = (
 				: {}),
 		},
 		// Trust origins including wildcard patterns for previews
-		trustedOrigins: [
-			PRODUCTION_CONVEX_SITE_URL,
-			convexSiteUrl,
-			siteUrl,
-			"https://osschat.dev",
-			"https://beta.osschat.dev",
-			// Wildcard patterns for preview environments
-			"https://*.osschat.dev",
-			"https://*.up.railway.app",
-			"https://*.convex.site",
-		],
+		trustedOrigins,
 		plugins,
 	});
 	

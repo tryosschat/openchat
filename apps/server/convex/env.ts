@@ -9,14 +9,14 @@ const logger = createLogger("EnvValidation");
 
 export interface ConvexEnv {
 	// Required
-	NEXT_PUBLIC_APP_URL: string;
+	APP_URL: string;
 
 	// Optional - Configuration
 	CONVEX_SITE_URL?: string;
 
 	// Optional - Metadata
-	NEXT_PUBLIC_DEPLOYMENT?: string;
-	NEXT_PUBLIC_APP_VERSION?: string;
+	DEPLOYMENT?: string;
+	APP_VERSION?: string;
 
 	// Optional - Environment
 	NODE_ENV?: "development" | "production" | "test";
@@ -32,23 +32,23 @@ export function validateConvexEnv(): ConvexEnv {
 
 	// Apply development defaults only in non-production environments
 	// Handle empty strings explicitly - they should trigger defaults too
-	const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.trim() || (!isProd ? "http://localhost:3000" : undefined));
+	const appUrl = (process.env.APP_URL?.trim() || (!isProd ? "http://localhost:3000" : undefined));
 
 	// Check required variables
 	if (!appUrl) {
 		if (isProd) {
-			errors.push("NEXT_PUBLIC_APP_URL is required");
+			errors.push("APP_URL is required");
 		} else {
-			warnings.push("NEXT_PUBLIC_APP_URL not set, using default: http://localhost:3000");
+			warnings.push("APP_URL not set, using default: http://localhost:3000");
 		}
 	} else {
 		try {
 			new URL(appUrl);
 		} catch {
 			if (isProd) {
-				errors.push("NEXT_PUBLIC_APP_URL must be a valid URL");
+				errors.push("APP_URL must be a valid URL");
 			} else {
-				warnings.push("NEXT_PUBLIC_APP_URL is not a valid URL, using default");
+				warnings.push("APP_URL is not a valid URL, using default");
 			}
 		}
 	}
@@ -71,10 +71,10 @@ export function validateConvexEnv(): ConvexEnv {
 	}
 
 	return {
-		NEXT_PUBLIC_APP_URL: appUrl || "http://localhost:3000",
+		APP_URL: appUrl || "http://localhost:3000",
 		CONVEX_SITE_URL: process.env.CONVEX_SITE_URL,
-		NEXT_PUBLIC_DEPLOYMENT: process.env.NEXT_PUBLIC_DEPLOYMENT,
-		NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION,
+		DEPLOYMENT: process.env.DEPLOYMENT,
+		APP_VERSION: process.env.APP_VERSION,
 		NODE_ENV: process.env.NODE_ENV as "development" | "production" | "test" | undefined,
 	};
 }

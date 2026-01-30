@@ -7,6 +7,8 @@ import { incrementStat, STAT_KEYS } from "./lib/dbStats";
 import { rateLimiter } from "./lib/rateLimiter";
 import { throwRateLimitError } from "./lib/rateLimitUtils";
 import { sanitizeTitle } from "./lib/sanitize";
+import { requireAuthUserId, requireAuthUserIdFromAction } from "./lib/auth";
+import { decryptSecret } from "./lib/crypto";
 
 const TITLE_MODEL_ID = "google/gemini-2.5-flash-lite";
 const TITLE_MAX_LENGTH = 200;
@@ -51,6 +53,7 @@ export const list = query({
 		nextCursor: v.union(v.string(), v.null()),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// SECURITY: Enforce maximum limit to prevent unbounded queries
 		// Even if client requests more, cap at MAX_CHAT_LIST_LIMIT
 		let limit = args.limit ?? DEFAULT_CHAT_LIST_LIMIT;
@@ -68,7 +71,7 @@ export const list = query({
 		const results = await ctx.db
 			.query("chats")
 			.withIndex("by_user_not_deleted", (q) =>
-				q.eq("userId", args.userId).eq("deletedAt", undefined)
+				q.eq("userId", userId).eq("deletedAt", undefined)
 			)
 			.order("desc")
 			.paginate({
@@ -103,8 +106,9 @@ export const get = query({
 	},
 	returns: v.union(chatDoc, v.null()),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId || chat.deletedAt) return null;
+		if (!chat || chat.userId !== userId || chat.deletedAt) return null;
 		return chat;
 	},
 });
@@ -116,11 +120,12 @@ export const create = mutation({
 	},
 	returns: v.object({ chatId: v.id("chats") }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const sanitizedTitle = sanitizeTitle(args.title);
 
 		// Simple rate limiting with the package - returns { ok, retryAfter }
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "chatCreate", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -129,7 +134,7 @@ export const create = mutation({
 
 		const now = Date.now();
 		const chatId = await ctx.db.insert("chats", {
-			userId: args.userId,
+			userId,
 			title: sanitizedTitle,
 			createdAt: now,
 			updatedAt: now,
@@ -151,9 +156,10 @@ export const remove = mutation({
 	},
 	returns: v.object({ ok: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limit chat deletions to prevent abuse
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "chatDelete", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -161,7 +167,7 @@ export const remove = mutation({
 		}
 
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+		if (!chat || chat.userId !== userId || chat.deletedAt) {
 			return { ok: false } as const;
 		}
 		const now = Date.now();
@@ -207,6 +213,7 @@ export const removeBulk = mutation({
 		failed: v.number(),
 	}),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Validate bulk size to prevent abuse
 		if (args.chatIds.length === 0) {
 			return { ok: true, deleted: 0, failed: 0 };
@@ -218,7 +225,7 @@ export const removeBulk = mutation({
 
 		// Rate limit: consume one token per chat being deleted
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "chatBulkDelete", {
-			key: args.userId,
+			key: userId,
 			count: args.chatIds.length,
 		});
 
@@ -237,7 +244,7 @@ export const removeBulk = mutation({
 			const chat = await ctx.db.get(chatId);
 
 			// Skip if chat doesn't exist, doesn't belong to user, or is already deleted
-			if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+			if (!chat || chat.userId !== userId || chat.deletedAt) {
 				failed++;
 				continue;
 			}
@@ -309,9 +316,10 @@ export const checkExportRateLimit = mutation({
 	},
 	returns: v.object({ ok: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Rate limit chat exports to prevent abuse
 		const { ok, retryAfter } = await rateLimiter.limit(ctx, "chatExport", {
-			key: args.userId,
+			key: userId,
 		});
 
 		if (!ok) {
@@ -337,9 +345,10 @@ export const markChatAsRead = mutation({
 	},
 	returns: v.object({ ok: v.boolean() }),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		// Verify user owns the chat
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+		if (!chat || chat.userId !== userId || chat.deletedAt) {
 			return { ok: false };
 		}
 
@@ -349,7 +358,7 @@ export const markChatAsRead = mutation({
 		const existing = await ctx.db
 			.query("chatReadStatus")
 			.withIndex("by_user_chat", (q) =>
-				q.eq("userId", args.userId).eq("chatId", args.chatId)
+				q.eq("userId", userId).eq("chatId", args.chatId)
 			)
 			.unique();
 
@@ -359,7 +368,7 @@ export const markChatAsRead = mutation({
 		} else {
 			// Create new record
 			await ctx.db.insert("chatReadStatus", {
-				userId: args.userId,
+				userId,
 				chatId: args.chatId,
 				lastReadAt: now,
 			});
@@ -384,9 +393,10 @@ export const getChatReadStatuses = query({
 		})
 	),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const statuses = await ctx.db
 			.query("chatReadStatus")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 
 		return statuses.map((s) => ({
@@ -412,19 +422,26 @@ export const generateTitle = action({
 		seedText: v.string(),
 		length: v.union(v.literal("short"), v.literal("standard"), v.literal("long")),
 		provider: v.union(v.literal("osschat"), v.literal("openrouter")),
-		apiKey: v.optional(v.string()),
 	},
 	returns: v.union(v.string(), v.null()),
 	handler: async (_ctx, args) => {
+		const userId = await requireAuthUserIdFromAction(_ctx, args.userId);
 		await _ctx.runMutation(internal.chats.enforceTitleRateLimit, {
-			userId: args.userId,
+			userId,
 		});
 
 		const seedText = args.seedText.trim();
 		if (!seedText) return null;
 
-		const openRouterKey =
-			args.provider === "osschat" ? process.env.OPENROUTER_API_KEY : args.apiKey;
+		let openRouterKey: string | null = null;
+		if (args.provider === "osschat") {
+			openRouterKey = process.env.OPENROUTER_API_KEY ?? null;
+		} else {
+			const encryptedKey = await _ctx.runQuery(internal.users.getOpenRouterKeyInternal, {
+				userId,
+			});
+			openRouterKey = encryptedKey ? await decryptSecret(encryptedKey) : null;
+		}
 		if (!openRouterKey) return null;
 
 		const systemPrompt = [
@@ -513,8 +530,9 @@ export const updateTitle = mutation({
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+		if (!chat || chat.userId !== userId || chat.deletedAt) {
 			return null;
 		}
 
@@ -542,8 +560,9 @@ export const setTitle = mutation({
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+		if (!chat || chat.userId !== userId || chat.deletedAt) {
 			return null;
 		}
 
@@ -566,8 +585,9 @@ export const setActiveStream = mutation({
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+		if (!chat || chat.userId !== userId || chat.deletedAt) {
 			return null;
 		}
 
@@ -588,8 +608,9 @@ export const getActiveStream = query({
 	},
 	returns: v.union(v.string(), v.null()),
 	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
 		const chat = await ctx.db.get(args.chatId);
-		if (!chat || chat.userId !== args.userId || chat.deletedAt) {
+		if (!chat || chat.userId !== userId || chat.deletedAt) {
 			return null;
 		}
 		return chat.activeStreamId ?? null;

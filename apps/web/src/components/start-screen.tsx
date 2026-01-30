@@ -8,8 +8,6 @@
  * - Clicking a suggestion populates the input (doesn't auto-send)
  */
 
-"use client";
-
 import { useState } from "react";
 import { BookOpenIcon, ChevronRightIcon, CodeIcon, CompassIcon, PenLineIcon } from "lucide-react";
 import { cn } from "@/lib/utils";

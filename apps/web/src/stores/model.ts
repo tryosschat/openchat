@@ -474,7 +474,6 @@ function getFallbackModels(): Array<Model> {
   ];
 }
 
-export const defaultModels = getFallbackModels();
 export const fallbackModels = getFallbackModels();
 
 // ============================================================================

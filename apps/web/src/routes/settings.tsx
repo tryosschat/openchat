@@ -372,14 +372,14 @@ function ProvidersSection() {
   const remainingBudget = useProviderStore((s) => s.remainingBudgetCents());
   const [connectModalOpen, setConnectModalOpen] = useState(false);
 
-  const handleDisconnect = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    clearApiKey();
-    // Switch back to OSSChat if disconnecting while on OpenRouter
-    if (activeProvider === "openrouter") {
-      setActiveProvider("osschat");
-    }
-  };
+	const handleDisconnect = (e: React.MouseEvent) => {
+		e.stopPropagation();
+		void clearApiKey();
+		// Switch back to OSSChat if disconnecting while on OpenRouter
+		if (activeProvider === "openrouter") {
+			setActiveProvider("osschat");
+		}
+	};
 
   return (
     <div className="space-y-8">
