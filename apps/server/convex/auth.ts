@@ -85,9 +85,11 @@ export const createAuth = (
 		// Use Convex site URL as baseURL so OAuth callbacks work correctly
 		baseURL: convexSiteUrl,
 		database: authComponent.adapter(ctx),
-		// GitHub OAuth only - no email/password
+		// TODO: add email verification (requireEmailVerification + sendVerificationEmail)
 		emailAndPassword: {
-			enabled: false,
+			enabled: true,
+			minPasswordLength: 8,
+			maxPasswordLength: 128,
 		},
 		socialProviders: {
 			github: {

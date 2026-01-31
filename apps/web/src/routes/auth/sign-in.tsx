@@ -4,10 +4,19 @@
 
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { signInWithGitHub, signInWithVercel, useAuth } from "@/lib/auth-client";
+import {
+  signInWithEmail,
+  signInWithGitHub,
+  signInWithVercel,
+  signUpWithEmail,
+  useAuth,
+} from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { env } from "@/lib/env";
+import { analytics } from "@/lib/analytics";
 
 // Stats type from our backend
 type PublicStats = {
@@ -160,9 +169,15 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function SignInPage() {
   const navigate = useNavigate();
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, refetchSession } = useAuth();
   const [isGitHubLoading, setIsGitHubLoading] = useState(false);
   const [isVercelLoading, setIsVercelLoading] = useState(false);
+  const [isEmailLoading, setIsEmailLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [stats, setStats] = useState<PublicStats | null>(cachedStats);
 
   // Redirect if already authenticated
@@ -223,6 +238,42 @@ function SignInPage() {
     }
   };
 
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailError(null);
+    setIsEmailLoading(true);
+
+    try {
+      if (isSignUp) {
+        const { error } = await signUpWithEmail(email, password, name || email.split("@")[0] || "User");
+        if (error) {
+          setEmailError("Could not create account. The email may already be in use.");
+          return;
+        }
+      } else {
+        const { error } = await signInWithEmail(email, password);
+        if (error) {
+          setEmailError("Invalid email or password.");
+          return;
+        }
+      }
+      const success = await refetchSession();
+      if (success) {
+        analytics.signedIn();
+        navigate({ to: "/" });
+      } else {
+        setEmailError("Signed in but failed to load session. Please refresh the page.");
+      }
+    } catch (err) {
+      console.error("Email auth failed:", err);
+      setEmailError(isSignUp ? "Sign up failed. Please try again." : "Sign in failed. Please try again.");
+    } finally {
+      setIsEmailLoading(false);
+    }
+  };
+
+  const anyLoading = isGitHubLoading || isVercelLoading || isEmailLoading;
+
   return (
     <div className="grid min-h-svh lg:grid-cols-2 overflow-hidden">
       {/* Left Column - Sign In Form */}
@@ -242,10 +293,86 @@ function SignInPage() {
               <p className="text-muted-foreground text-sm">Sign in to access your workspace</p>
             </div>
 
+            <form onSubmit={handleEmailSubmit} className="space-y-3">
+              {isSignUp && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="name">Name</Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="Your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={anyLoading}
+                    autoComplete="name"
+                  />
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={anyLoading}
+                  required
+                  autoComplete="email"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Min. 8 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={anyLoading}
+                  required
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete={isSignUp ? "new-password" : "current-password"}
+                />
+              </div>
+
+              {emailError && (
+                <p className="text-sm text-destructive">{emailError}</p>
+              )}
+
+              <Button
+                type="submit"
+                disabled={anyLoading}
+                className="w-full"
+              >
+                {isEmailLoading
+                  ? (isSignUp ? "Creating account..." : "Signing in...")
+                  : (isSignUp ? "Create account" : "Sign in")}
+              </Button>
+            </form>
+
+            <button
+              type="button"
+              onClick={() => { setIsSignUp(!isSignUp); setEmailError(null); }}
+              className="text-sm text-muted-foreground hover:text-foreground text-center w-full transition-colors"
+            >
+              {isSignUp ? "Already have an account? Sign in" : "Don't have an account? Sign up"}
+            </button>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">or</span>
+              </div>
+            </div>
+
             <div className="space-y-3">
               <Button
                 onClick={handleGitHubSignIn}
-                disabled={isGitHubLoading || isVercelLoading}
+                disabled={anyLoading}
                 variant="outline"
                 className="w-full gap-2"
               >
@@ -254,7 +381,7 @@ function SignInPage() {
               </Button>
               <Button
                 onClick={handleVercelSignIn}
-                disabled={isGitHubLoading || isVercelLoading}
+                disabled={anyLoading}
                 variant="outline"
                 className="w-full gap-2"
               >
