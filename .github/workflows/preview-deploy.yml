@@ -139,11 +139,13 @@ jobs:
             https://backboard.railway.app/graphql/v2
 
           # Set REDIS_URL (reference to Redis service in preview environment)
+          # Note: Railway variable references use ${{...}} which collides with GHA expression syntax
+          REDIS_REF='${{Redis.REDIS_URL}}'
           echo "Setting REDIS_URL..."
           curl -s -X POST \
             -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"query\": \"mutation { variableUpsert(input: { projectId: \\\"${PROJECT_ID}\\\", environmentId: \\\"${ENV_ID}\\\", serviceId: \\\"${SERVICE_ID}\\\", name: \\\"REDIS_URL\\\", value: \\\"\\\${{Redis.REDIS_URL}}\\\" }) }\"}" \
+            -d "{\"query\": \"mutation { variableUpsert(input: { projectId: \\\"${PROJECT_ID}\\\", environmentId: \\\"${ENV_ID}\\\", serviceId: \\\"${SERVICE_ID}\\\", name: \\\"REDIS_URL\\\", value: \\\"${REDIS_REF}\\\" }) }\"}" \
             https://backboard.railway.app/graphql/v2
 
           echo "✅ Railway environment variables updated"
