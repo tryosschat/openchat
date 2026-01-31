@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [closed]
 
+permissions:
+  contents: read
+
 jobs:
   cleanup-convex-preview:
     name: Cleanup Convex Preview
