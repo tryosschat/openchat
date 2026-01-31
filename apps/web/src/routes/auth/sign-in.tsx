@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { env } from "@/lib/env";
+import { analytics } from "@/lib/analytics";
 
 // Stats type from our backend
 type PublicStats = {
@@ -244,7 +245,7 @@ function SignInPage() {
 
     try {
       if (isSignUp) {
-        const { error } = await signUpWithEmail(email, password, name || email.split("@")[0]);
+        const { error } = await signUpWithEmail(email, password, name || email.split("@")[0] || "User");
         if (error) {
           setEmailError("Could not create account. The email may already be in use.");
           return;
@@ -258,11 +259,13 @@ function SignInPage() {
       }
       const success = await refetchSession();
       if (success) {
+        analytics.signedIn();
         navigate({ to: "/" });
       } else {
         setEmailError("Signed in but failed to load session. Please refresh the page.");
       }
-    } catch {
+    } catch (err) {
+      console.error("Email auth failed:", err);
       setEmailError(isSignUp ? "Sign up failed. Please try again." : "Sign in failed. Please try again.");
     } finally {
       setIsEmailLoading(false);
@@ -329,6 +332,7 @@ function SignInPage() {
                   disabled={anyLoading}
                   required
                   minLength={8}
+                  maxLength={128}
                   autoComplete={isSignUp ? "new-password" : "current-password"}
                 />
               </div>
