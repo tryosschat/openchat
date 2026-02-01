@@ -21,41 +21,34 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.8"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Deploy Convex Preview
-        id: convex-deploy
+      - name: Create Convex Preview
+        id: convex-create
         working-directory: apps/server
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
         run: |
-          echo "🚀 Deploying Convex preview for PR #${{ github.event.pull_request.number }}..."
+          PR_NUM=${{ github.event.pull_request.number }}
+          echo "🚀 Creating Convex preview for PR #${PR_NUM}..."
 
-          # Deploy to Convex preview
-          OUTPUT=$(bunx convex deploy --preview-create pr-${{ github.event.pull_request.number }} 2>&1)
-          echo "$OUTPUT"
+          OUTPUT_FILE=$(mktemp)
+          set +e
+          bunx convex deploy --preview-create "pr-${PR_NUM}" 2>&1 | tee "$OUTPUT_FILE"
+          set -e
 
-          # Extract the deployment URL from output
-          CONVEX_URL=$(echo "$OUTPUT" | grep -o 'https://[a-z0-9-]*\.convex\.cloud' | head -1)
-
-          if [ -z "$CONVEX_URL" ]; then
-            echo "❌ Failed to extract Convex URL from deployment output"
-            exit 1
+          CONVEX_URL=$(grep -o 'https://[a-z0-9-]*\.convex\.cloud' "$OUTPUT_FILE" | head -1)
+          if [ -n "$CONVEX_URL" ]; then
+            echo "convex_url=$CONVEX_URL" >> $GITHUB_OUTPUT
+            CONVEX_SITE_URL=$(echo "$CONVEX_URL" | sed 's/\.convex\.cloud/.convex.site/')
+            echo "convex_site_url=$CONVEX_SITE_URL" >> $GITHUB_OUTPUT
+            echo "   Cloud URL: $CONVEX_URL"
+          else
+            echo "⚠️ Could not extract URL, will retry after setting env vars"
           fi
-
-          # Derive the site URL from the cloud URL
-          CONVEX_SITE_URL=$(echo "$CONVEX_URL" | sed 's/\.convex\.cloud/.convex.site/')
-
-          echo "✅ Convex Preview deployed!"
-          echo "   Cloud URL: $CONVEX_URL"
-          echo "   Site URL: $CONVEX_SITE_URL"
-
-          # Set outputs for later steps
-          echo "convex_url=$CONVEX_URL" >> $GITHUB_OUTPUT
-          echo "convex_site_url=$CONVEX_SITE_URL" >> $GITHUB_OUTPUT
 
       - name: Set Convex Environment Variables
         working-directory: apps/server
@@ -64,31 +57,55 @@ jobs:
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           GITHUB_CLIENT_ID: ${{ secrets.AUTH_GITHUB_CLIENT_ID }}
           GITHUB_CLIENT_SECRET: ${{ secrets.AUTH_GITHUB_CLIENT_SECRET }}
+          VERCEL_CLIENT_ID: ${{ secrets.VERCEL_CLIENT_ID }}
+          VERCEL_CLIENT_SECRET: ${{ secrets.VERCEL_CLIENT_SECRET }}
         run: |
-          echo "⚙️ Setting Convex environment variables..."
-
           PR_NUM=${{ github.event.pull_request.number }}
           RAILWAY_URL="https://web-openchat-pr-${PR_NUM}.up.railway.app"
 
-          # Core settings
           bunx convex env set SITE_URL "$RAILWAY_URL" --preview-name pr-${PR_NUM}
           bunx convex env set NEXT_PUBLIC_DEPLOYMENT "preview" --preview-name pr-${PR_NUM}
-
-          # Auth settings - must match production for oAuthProxy to work
           bunx convex env set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" --preview-name pr-${PR_NUM}
           bunx convex env set GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID" --preview-name pr-${PR_NUM}
           bunx convex env set GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET" --preview-name pr-${PR_NUM}
+          bunx convex env set VERCEL_CLIENT_ID "$VERCEL_CLIENT_ID" --preview-name pr-${PR_NUM}
+          bunx convex env set VERCEL_CLIENT_SECRET "$VERCEL_CLIENT_SECRET" --preview-name pr-${PR_NUM}
+          bunx convex env set PRODUCTION_CONVEX_SITE_URL "https://outgoing-setter-201.convex.site" --preview-name pr-${PR_NUM}
 
-          echo "✅ Convex env vars set"
-          echo "   SITE_URL: $RAILWAY_URL"
-          echo "   NEXT_PUBLIC_DEPLOYMENT: preview"
-          echo "   BETTER_AUTH_SECRET: [set]"
-          echo "   GITHUB_CLIENT_ID: [set]"
-          echo "   GITHUB_CLIENT_SECRET: [set]"
+          echo "✅ Convex env vars set for pr-${PR_NUM}"
+
+      - name: Deploy Convex Preview
+        id: convex-deploy
+        working-directory: apps/server
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+        run: |
+          PR_NUM=${{ github.event.pull_request.number }}
+          echo "🚀 Deploying code to Convex preview pr-${PR_NUM}..."
+
+          OUTPUT_FILE=$(mktemp)
+          bunx convex deploy --preview-create "pr-${PR_NUM}" 2>&1 | tee "$OUTPUT_FILE"
+
+          CONVEX_URL=$(grep -o 'https://[a-z0-9-]*\.convex\.cloud' "$OUTPUT_FILE" | head -1)
+
+          if [ -z "$CONVEX_URL" ]; then
+            echo "❌ Failed to extract Convex URL"
+            exit 1
+          fi
+
+          CONVEX_SITE_URL=$(echo "$CONVEX_URL" | sed 's/\.convex\.cloud/.convex.site/')
+
+          echo "✅ Convex Preview deployed!"
+          echo "   Cloud URL: $CONVEX_URL"
+          echo "   Site URL: $CONVEX_SITE_URL"
+
+          echo "convex_url=$CONVEX_URL" >> $GITHUB_OUTPUT
+          echo "convex_site_url=$CONVEX_SITE_URL" >> $GITHUB_OUTPUT
 
       - name: Configure Railway Environment
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          REDIS_RAILWAY_REF: ${{ '${{Redis.REDIS_URL}}' }}
         run: |
           echo "🚂 Configuring Railway environment via GraphQL API..."
 
@@ -138,12 +155,12 @@ jobs:
             -d "{\"query\": \"mutation { variableUpsert(input: { projectId: \\\"${PROJECT_ID}\\\", environmentId: \\\"${ENV_ID}\\\", serviceId: \\\"${SERVICE_ID}\\\", name: \\\"VITE_CONVEX_SITE_URL\\\", value: \\\"${CONVEX_SITE_URL}\\\" }) }\"}" \
             https://backboard.railway.app/graphql/v2
 
-          # Set REDIS_URL (reference to Redis service in preview environment)
+          # Set REDIS_URL (Railway service reference)
           echo "Setting REDIS_URL..."
           curl -s -X POST \
             -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"query\": \"mutation { variableUpsert(input: { projectId: \\\"${PROJECT_ID}\\\", environmentId: \\\"${ENV_ID}\\\", serviceId: \\\"${SERVICE_ID}\\\", name: \\\"REDIS_URL\\\", value: \\\"\\\${{Redis.REDIS_URL}}\\\" }) }\"}" \
+            -d "{\"query\": \"mutation { variableUpsert(input: { projectId: \\\"${PROJECT_ID}\\\", environmentId: \\\"${ENV_ID}\\\", serviceId: \\\"${SERVICE_ID}\\\", name: \\\"REDIS_URL\\\", value: \\\"${REDIS_RAILWAY_REF}\\\" }) }\"}" \
             https://backboard.railway.app/graphql/v2
 
           echo "✅ Railway environment variables updated"

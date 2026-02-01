@@ -1,0 +1,17 @@
+name: Preflight Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  preflight:
+    name: Run Preflight scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Preflight scan
+        continue-on-error: true
+        run: npx @preflightsh/preflight scan --ci --format json
