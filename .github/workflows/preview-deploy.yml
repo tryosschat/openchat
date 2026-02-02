@@ -79,19 +79,6 @@ jobs:
 
           echo "✅ Convex env vars set for pr-${PR_NUM}"
 
-      - name: Redeploy with Environment Variables
-        working-directory: apps/server
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
-        run: |
-          PR_NUM=${{ github.event.pull_request.number }}
-          echo "🔄 Redeploying with env vars configured..."
-
-          # Second deploy reuses existing preview (same name) with env vars now available
-          bunx convex deploy --preview-create "pr-${PR_NUM}" 2>&1
-
-          echo "✅ Convex Preview redeployed with env vars!"
-
       - name: Configure Railway Environment
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
