@@ -11,7 +11,30 @@ import { ThemeProvider } from "./theme-provider";
 import { PostHogProvider } from "./posthog";
 
 if (typeof window !== "undefined") {
-  prefetchModels();
+  const schedulePrefetch = () => {
+    const connection = (navigator as Navigator & {
+      connection?: { effectiveType?: string; saveData?: boolean };
+    }).connection;
+    if (connection?.saveData) return;
+    if (connection?.effectiveType && /2g/.test(connection.effectiveType)) return;
+
+    const run = () => prefetchModels();
+    const requestIdle = (window as Window & {
+      requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
+    }).requestIdleCallback;
+
+    if (requestIdle) {
+      requestIdle(run, { timeout: 2000 });
+    } else {
+      setTimeout(run, 1500);
+    }
+  };
+
+  if (document.readyState === "complete") {
+    schedulePrefetch();
+  } else {
+    window.addEventListener("load", schedulePrefetch, { once: true });
+  }
 }
 
 const queryClient = new QueryClient({

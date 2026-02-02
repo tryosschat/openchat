@@ -10,7 +10,7 @@
  * - Convex persistence for chat history
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpIcon, BrainIcon, ChevronDownIcon, GlobeIcon,
@@ -1261,6 +1261,145 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
   );
 }
 
+interface ChatMessageListProps {
+  messages: Array<{
+    id: string;
+    role: string;
+    parts?: Array<UIMessagePart<UIDataTypes, UITools>>;
+  }>;
+  isLoading: boolean;
+  isNewChat: boolean;
+  onPromptSelect: (prompt: string) => void;
+}
+
+const ChatMessageList = memo(function ChatMessageList({
+  messages,
+  isLoading,
+  isNewChat,
+  onPromptSelect,
+}: ChatMessageListProps) {
+  const processedMessages = useMemo(() => {
+    if (messages.length === 0) return [];
+    const streamingId = isLoading ? messages[messages.length - 1]?.id : null;
+
+    return messages.map((message) => {
+      const msg = message as typeof message & {
+        error?: {
+          code: string;
+          message: string;
+          details?: string;
+          provider?: string;
+          retryable?: boolean;
+        };
+        messageType?: "text" | "error" | "system";
+      };
+
+      const allParts = message.parts || [];
+      const textParts = allParts.filter((p): p is { type: "text"; text: string } => p.type === "text");
+      const fileParts = allParts.filter((p): p is { type: "file"; filename?: string; url?: string; mediaType?: string } => p.type === "file");
+
+      const {
+        steps: thinkingSteps,
+        isAnyStreaming: isAnyStepStreaming,
+        hasTextContent,
+      } = buildChainOfThoughtSteps(allParts);
+
+      const textContent = textParts.map((p) => p.text).join("").trim();
+      const hasReasoning = allParts.some((p) => p.type === "reasoning");
+      const hasFiles = fileParts.length > 0;
+      const isCurrentlyStreaming = streamingId === message.id;
+
+      const shouldSkip =
+        msg.messageType !== "error" &&
+        message.role === "assistant" &&
+        !textContent &&
+        !hasReasoning &&
+        !hasFiles &&
+        !isCurrentlyStreaming;
+
+      return {
+        message,
+        msg,
+        textParts,
+        fileParts,
+        thinkingSteps,
+        isAnyStepStreaming,
+        hasTextContent,
+        isCurrentlyStreaming,
+        shouldSkip,
+      };
+    });
+  }, [messages, isLoading]);
+
+  return (
+    <Conversation className="flex-1 px-2 md:px-4" showScrollButton>
+      <AutoScroll messageCount={messages.length} />
+      {/* Mobile: extra top padding to clear hamburger menu (fixed left-3 top-3 size-11 = 12px + 44px + 8px breathing room = 64px) */}
+      <ConversationContent className="mx-auto max-w-3xl pt-16 md:pt-6 pb-16 px-2 md:px-4">
+        {messages.length === 0 && isNewChat ? (
+          <StartScreen onPromptSelect={onPromptSelect} />
+        ) : messages.length === 0 ? null : (
+          <>
+            {processedMessages.map((item) => {
+              if (item.shouldSkip) return null;
+
+              if (item.msg.messageType === "error" && item.msg.error) {
+                return (
+                  <div key={item.message.id}>
+                    <Message from={item.message.role as "user" | "assistant"}>
+                      <MessageContent>
+                        <InlineErrorMessage error={item.msg.error} />
+                      </MessageContent>
+                    </Message>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={item.message.id}>
+                  <Message from={item.message.role as "user" | "assistant"}>
+                    <MessageContent>
+                      {item.thinkingSteps.length > 0 && (
+                        <ChainOfThought
+                          steps={item.thinkingSteps}
+                          isStreaming={item.isAnyStepStreaming}
+                          hasTextContent={item.hasTextContent || item.textParts.length > 0}
+                        />
+                      )}
+
+                      {item.textParts.map((part, partIndex) => (
+                        <MessageResponse
+                          key={`text-${partIndex}`}
+                          isStreaming={item.isCurrentlyStreaming && partIndex === item.textParts.length - 1}
+                        >
+                          {part.text || ""}
+                        </MessageResponse>
+                      ))}
+
+                      {item.fileParts.map((part, partIndex) => (
+                        <MessageFile
+                          key={`file-${partIndex}`}
+                          filename={part.filename}
+                          url={part.url}
+                          mediaType={part.mediaType}
+                        />
+                      ))}
+                    </MessageContent>
+                  </Message>
+                </div>
+              );
+            })}
+            {isLoading && messages[messages.length - 1]?.role === "user" && (
+              <LoadingIndicator />
+            )}
+            {/* Note: Errors are now shown inline as messages via InlineErrorMessage */}
+          </>
+        )}
+      </ConversationContent>
+    </Conversation>
+  );
+});
+
 // Inner content component that has access to PromptInputProvider context
 interface ChatInterfaceContentProps {
   chatId: string | null;
@@ -1324,15 +1463,16 @@ function ChatInterfaceContent({
   }, [textareaRef]);
 
   // Handler for StartScreen prompt selection - populates input and focuses
+  const setInput = controller.textInput.setInput;
   const onPromptSelect = useCallback(
     (prompt: string) => {
-      controller.textInput.setInput(prompt);
+      setInput(prompt);
       // Focus the textarea after setting the value
       setTimeout(() => {
         textareaRef.current?.focus();
       }, 0);
     },
-    [controller.textInput, textareaRef],
+    [setInput, textareaRef],
   );
 
   // Wrap handleSubmit to clear the draft after successful submission
@@ -1348,130 +1488,12 @@ function ChatInterfaceContent({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Messages area - using AI Elements Conversation */}
-      <Conversation className="flex-1 px-2 md:px-4" showScrollButton>
-        <AutoScroll messageCount={messages.length} />
-        {/* Mobile: extra top padding to clear hamburger menu (fixed left-3 top-3 size-11 = 12px + 44px + 8px breathing room = 64px) */}
-        <ConversationContent className="mx-auto max-w-3xl pt-16 md:pt-6 pb-16 px-2 md:px-4">
-          {messages.length === 0 && isNewChat ? (
-            <StartScreen onPromptSelect={onPromptSelect} />
-          ) : messages.length === 0 ? null : (
-            <>
-              {messages.map((message) => {
-                // Cast to include our custom error fields
-                const msg = message as typeof message & {
-                  error?: {
-                    code: string;
-                    message: string;
-                    details?: string;
-                    provider?: string;
-                    retryable?: boolean;
-                  };
-                  messageType?: "text" | "error" | "system";
-                };
-
-                // Render error messages with special styling (like T3.chat)
-                if (msg.messageType === "error" && msg.error) {
-                  return (
-                    <div key={message.id}>
-                      <Message from={message.role as "user" | "assistant"}>
-                        <MessageContent>
-                          <InlineErrorMessage error={msg.error} />
-                        </MessageContent>
-                      </Message>
-                    </div>
-                  );
-                }
-
-                // Skip rendering assistant messages with no meaningful content
-                // This handles cases where AI SDK creates empty messages on error
-                const allParts = message.parts || [];
-                const textContent = allParts
-                  .filter((p): p is { type: "text"; text: string } => p.type === "text")
-                  .map((p) => p.text)
-                  .join("")
-                  .trim();
-                const hasReasoning = allParts.some((p) => p.type === "reasoning");
-                const hasFiles = allParts.some((p) => p.type === "file");
-
-                // Skip empty assistant messages (no text, reasoning, or files)
-                // But don't skip during streaming (messages are being built)
-                const isCurrentlyStreaming =
-                  isLoading && messages[messages.length - 1]?.id === message.id;
-                if (
-                  message.role === "assistant" &&
-                  !textContent &&
-                  !hasReasoning &&
-                  !hasFiles &&
-                  !isCurrentlyStreaming
-                ) {
-                  return null;
-                }
-
-                // Regular message rendering
-                // Use buildChainOfThoughtSteps to process parts IN ORDER
-                // This preserves the exact stream order and merges consecutive reasoning
-
-                const textParts = allParts.filter((p) => p.type === "text") as unknown as Array<{
-                  type: "text";
-                  text: string;
-                }>;
-                const fileParts = allParts.filter((p) => p.type === "file") as unknown as Array<{
-                  type: "file";
-                  filename?: string;
-                  url?: string;
-                  mediaType?: string;
-                }>;
-
-                // Build thinking steps from reasoning and tool parts
-                const {
-                  steps: thinkingSteps,
-                  isAnyStreaming: isAnyStepStreaming,
-                  hasTextContent,
-                } = buildChainOfThoughtSteps(allParts);
-
-                return (
-                  <div key={message.id}>
-                    <Message from={message.role as "user" | "assistant"}>
-                      <MessageContent>
-                        {thinkingSteps.length > 0 && (
-                          <ChainOfThought
-                            steps={thinkingSteps}
-                            isStreaming={isAnyStepStreaming}
-                            hasTextContent={hasTextContent || textParts.length > 0}
-                          />
-                        )}
-
-                        {textParts.map((part, partIndex) => (
-                          <MessageResponse
-                            key={`text-${partIndex}`}
-                            isStreaming={isCurrentlyStreaming && partIndex === textParts.length - 1}
-                          >
-                            {part.text || ""}
-                          </MessageResponse>
-                        ))}
-
-                        {fileParts.map((part, partIndex) => (
-                          <MessageFile
-                            key={`file-${partIndex}`}
-                            filename={part.filename}
-                            url={part.url}
-                            mediaType={part.mediaType}
-                          />
-                        ))}
-                      </MessageContent>
-                    </Message>
-                  </div>
-                );
-              })}
-              {isLoading && messages[messages.length - 1]?.role === "user" && (
-                <LoadingIndicator />
-              )}
-              {/* Note: Errors are now shown inline as messages via InlineErrorMessage */}
-            </>
-          )}
-        </ConversationContent>
-      </Conversation>
+      <ChatMessageList
+        messages={messages}
+        isLoading={isLoading}
+        isNewChat={isNewChat}
+        onPromptSelect={onPromptSelect}
+      />
 
       <div className="px-2 md:px-4 pt-2 md:pt-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:pb-4">
         <div className="mx-auto max-w-3xl">

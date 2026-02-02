@@ -1,4 +1,4 @@
-import {  useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@server/convex/_generated/api";
@@ -56,13 +56,12 @@ function ChatItemSkeleton({ delay = 0 }: { delay?: number }) {
   );
 }
 
-function groupChatsByTime(chats: Array<ChatItem>) {
+function groupChatsByTime(chats: Array<ChatItem>, now: number) {
   const today: Array<ChatItem> = [];
   const last7Days: Array<ChatItem> = [];
   const last30Days: Array<ChatItem> = [];
   const older: Array<ChatItem> = [];
 
-  const now = Date.now();
   const oneDayMs = 1000 * 60 * 60 * 24;
 
   for (const chat of chats) {
@@ -314,8 +313,12 @@ export function AppSidebar() {
     ? convexUser === undefined || chatsResult === undefined
     : false;
     
-  const grouped = groupChatsByTime(chats);
-  const deleteChat = deleteChatId ? chats.find((chat) => chat._id === deleteChatId) : null;
+  const dayKey = new Date().toDateString();
+  const grouped = useMemo(() => groupChatsByTime(chats, Date.now()), [chats, dayKey]);
+  const deleteChat = useMemo(
+    () => (deleteChatId ? chats.find((chat) => chat._id === deleteChatId) : null),
+    [deleteChatId, chats],
+  );
 
   const handleNewChat = () => {
     if (isMobile) {
