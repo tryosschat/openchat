@@ -26,54 +26,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Create Convex Preview
-        id: convex-create
-        working-directory: apps/server
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
-        run: |
-          PR_NUM=${{ github.event.pull_request.number }}
-          echo "🚀 Creating Convex preview for PR #${PR_NUM}..."
-
-          OUTPUT_FILE=$(mktemp)
-          set +e
-          bunx convex deploy --preview-create "pr-${PR_NUM}" 2>&1 | tee "$OUTPUT_FILE"
-          set -e
-
-          CONVEX_URL=$(grep -o 'https://[a-z0-9-]*\.convex\.cloud' "$OUTPUT_FILE" | head -1)
-          if [ -n "$CONVEX_URL" ]; then
-            echo "convex_url=$CONVEX_URL" >> $GITHUB_OUTPUT
-            CONVEX_SITE_URL=$(echo "$CONVEX_URL" | sed 's/\.convex\.cloud/.convex.site/')
-            echo "convex_site_url=$CONVEX_SITE_URL" >> $GITHUB_OUTPUT
-            echo "   Cloud URL: $CONVEX_URL"
-          else
-            echo "⚠️ Could not extract URL, will retry after setting env vars"
-          fi
-
-      - name: Set Convex Environment Variables
-        working-directory: apps/server
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
-          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          GITHUB_CLIENT_ID: ${{ secrets.AUTH_GITHUB_CLIENT_ID }}
-          GITHUB_CLIENT_SECRET: ${{ secrets.AUTH_GITHUB_CLIENT_SECRET }}
-          VERCEL_CLIENT_ID: ${{ secrets.VERCEL_CLIENT_ID }}
-          VERCEL_CLIENT_SECRET: ${{ secrets.VERCEL_CLIENT_SECRET }}
-        run: |
-          PR_NUM=${{ github.event.pull_request.number }}
-          RAILWAY_URL="https://web-openchat-pr-${PR_NUM}.up.railway.app"
-
-          bunx convex env set SITE_URL "$RAILWAY_URL" --preview-name pr-${PR_NUM}
-          bunx convex env set NEXT_PUBLIC_DEPLOYMENT "preview" --preview-name pr-${PR_NUM}
-          bunx convex env set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" --preview-name pr-${PR_NUM}
-          bunx convex env set GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID" --preview-name pr-${PR_NUM}
-          bunx convex env set GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET" --preview-name pr-${PR_NUM}
-          bunx convex env set VERCEL_CLIENT_ID "$VERCEL_CLIENT_ID" --preview-name pr-${PR_NUM}
-          bunx convex env set VERCEL_CLIENT_SECRET "$VERCEL_CLIENT_SECRET" --preview-name pr-${PR_NUM}
-          bunx convex env set PRODUCTION_CONVEX_SITE_URL "https://outgoing-setter-201.convex.site" --preview-name pr-${PR_NUM}
-
-          echo "✅ Convex env vars set for pr-${PR_NUM}"
-
       - name: Deploy Convex Preview
         id: convex-deploy
         working-directory: apps/server
@@ -81,8 +33,10 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
-          echo "🚀 Deploying code to Convex preview pr-${PR_NUM}..."
+          echo "🚀 Deploying Convex preview for PR #${PR_NUM}..."
 
+          # First deploy creates the preview (social providers are optional,
+          # so this succeeds even without env vars set yet)
           OUTPUT_FILE=$(mktemp)
           bunx convex deploy --preview-create "pr-${PR_NUM}" 2>&1 | tee "$OUTPUT_FILE"
 
@@ -101,6 +55,42 @@ jobs:
 
           echo "convex_url=$CONVEX_URL" >> $GITHUB_OUTPUT
           echo "convex_site_url=$CONVEX_SITE_URL" >> $GITHUB_OUTPUT
+
+      - name: Set Convex Environment Variables
+        working-directory: apps/server
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          GITHUB_CLIENT_ID: ${{ secrets.AUTH_GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.AUTH_GITHUB_CLIENT_SECRET }}
+          VERCEL_CLIENT_ID: ${{ secrets.VERCEL_CLIENT_ID }}
+          VERCEL_CLIENT_SECRET: ${{ secrets.VERCEL_CLIENT_SECRET }}
+        run: |
+          PR_NUM=${{ github.event.pull_request.number }}
+          RAILWAY_URL="https://web-openchat-pr-${PR_NUM}.up.railway.app"
+
+          bunx convex env set SITE_URL "$RAILWAY_URL" --preview-name "pr-${PR_NUM}"
+          bunx convex env set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" --preview-name "pr-${PR_NUM}"
+          bunx convex env set GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID" --preview-name "pr-${PR_NUM}"
+          bunx convex env set GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET" --preview-name "pr-${PR_NUM}"
+          bunx convex env set VERCEL_CLIENT_ID "$VERCEL_CLIENT_ID" --preview-name "pr-${PR_NUM}"
+          bunx convex env set VERCEL_CLIENT_SECRET "$VERCEL_CLIENT_SECRET" --preview-name "pr-${PR_NUM}"
+          bunx convex env set PRODUCTION_CONVEX_SITE_URL "https://outgoing-setter-201.convex.site" --preview-name "pr-${PR_NUM}"
+
+          echo "✅ Convex env vars set for pr-${PR_NUM}"
+
+      - name: Redeploy with Environment Variables
+        working-directory: apps/server
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+        run: |
+          PR_NUM=${{ github.event.pull_request.number }}
+          echo "🔄 Redeploying with env vars configured..."
+
+          # Second deploy reuses existing preview (same name) with env vars now available
+          bunx convex deploy --preview-create "pr-${PR_NUM}" 2>&1
+
+          echo "✅ Convex Preview redeployed with env vars!"
 
       - name: Configure Railway Environment
         env:
