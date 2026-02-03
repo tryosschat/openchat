@@ -11,6 +11,9 @@
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
 import { analytics } from "@/lib/analytics";
+import { isPreviewDeployment } from "@/lib/env";
+
+export { isPreviewDeployment };
 
 // Provider types - both use OpenRouter, just different API keys
 export type ProviderType = "osschat" | "openrouter";
@@ -105,8 +108,12 @@ export const useProviderStore = create<ProviderState>()(
         // Web search toggle
         webSearchEnabled: false,
 
-        setActiveProvider: (provider) =>
-          set({ activeProvider: provider }, false, "provider/setActive"),
+        setActiveProvider: (provider) => {
+          if (provider === "osschat" && isPreviewDeployment()) {
+            return;
+          }
+          set({ activeProvider: provider }, false, "provider/setActive");
+        },
 
         addUsage: (cents) => {
           const state = get();
@@ -238,9 +245,13 @@ export const useProviderStore = create<ProviderState>()(
           lastResetDate: state.lastResetDate,
           dailySearchCount: state.dailySearchCount,
           lastSearchResetDate: state.lastSearchResetDate,
-          // Persist web search toggle so it survives page reloads
           webSearchEnabled: state.webSearchEnabled,
         }),
+        onRehydrateStorage: () => (state) => {
+          if (state && state.activeProvider === "osschat" && isPreviewDeployment()) {
+            state.activeProvider = "openrouter";
+          }
+        },
       },
     ),
     { name: "provider-store" },

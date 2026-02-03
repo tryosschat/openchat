@@ -14,7 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { authClient, signOut, useAuth } from "@/lib/auth-client";
 import { useOpenRouterKey } from "@/stores/openrouter";
-import { DAILY_LIMIT_CENTS, useProviderStore } from "@/stores/provider";
+import { DAILY_LIMIT_CENTS, useProviderStore, isPreviewDeployment } from "@/stores/provider";
 import { getCacheStatus, useModels } from "@/stores/model";
 import { useChatTitleStore } from "@/stores/chat-title";
 import { useUIStore } from "@/stores/ui";
@@ -389,14 +389,17 @@ function ProvidersSection() {
           AI Provider
         </h2>
         <div className="grid gap-3">
-          {/* OSSChat Cloud - Free Tier */}
+          {/* OSSChat Cloud - Free Tier (disabled on preview deployments) */}
           <button
-            onClick={() => setActiveProvider("osschat")}
+            onClick={() => !isPreviewDeployment() && setActiveProvider("osschat")}
+            disabled={isPreviewDeployment()}
             className={cn(
               "flex items-start gap-4 rounded-xl border p-4 text-left transition-all",
-              activeProvider === "osschat"
-                ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                : "border-border bg-card hover:border-primary/50",
+              isPreviewDeployment()
+                ? "cursor-not-allowed border-border bg-muted/50 opacity-60"
+                : activeProvider === "osschat"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  : "border-border bg-card hover:border-primary/50",
             )}
           >
             <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-blue-500 to-cyan-500">
@@ -419,7 +422,11 @@ function ProvidersSection() {
               <p className="text-sm text-muted-foreground">
                 350+ AI models with {DAILY_LIMIT_CENTS}¢ daily limit
               </p>
-              {activeProvider === "osschat" && (
+              {isPreviewDeployment() ? (
+                <p className="mt-2 text-xs text-warning">
+                  Not available on preview deployments. Please use your own OpenRouter API key.
+                </p>
+              ) : activeProvider === "osschat" ? (
                 <div className="mt-3 space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Daily Usage</span>
@@ -448,9 +455,9 @@ function ProvidersSection() {
                     </p>
                   )}
                 </div>
-              )}
+              ) : null}
             </div>
-            {activeProvider === "osschat" && (
+            {activeProvider === "osschat" && !isPreviewDeployment() && (
               <svg
                 className="size-5 shrink-0 text-primary"
                 fill="none"

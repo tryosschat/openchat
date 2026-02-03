@@ -24,3 +24,12 @@ export function validateEnv(): void {
 		throw new Error(`Missing required environment variables: ${errors.join(", ")}`);
 	}
 }
+
+const PRODUCTION_HOSTS = ["osschat.dev", "www.osschat.dev"];
+
+export function isPreviewDeployment(): boolean {
+	if (typeof window === "undefined") return false;
+	const hostname = window.location.hostname;
+	if (hostname === "localhost" || hostname === "127.0.0.1") return false;
+	return !PRODUCTION_HOSTS.includes(hostname);
+}
