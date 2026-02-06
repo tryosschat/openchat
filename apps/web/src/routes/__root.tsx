@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { Providers } from "../providers";
 import { CommandPalette, useCommandPaletteShortcut } from "../components/command-palette";
-import { SidebarInset, SidebarProvider, useSidebarShortcut } from "../components/ui/sidebar";
+import { SidebarInset, SidebarProvider } from "../components/ui/sidebar";
 import { NavigationProgress } from "../components/navigation-progress";
 import { AppSidebar } from "../components/app-sidebar";
 import { useAuth } from "../lib/auth-client";
@@ -138,7 +138,6 @@ function RootComponent() {
 function AppShell() {
   // Register global keyboard shortcuts
   useCommandPaletteShortcut();
-  useSidebarShortcut();
 
   // Track page views
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -166,12 +165,10 @@ function AppShell() {
 
   return (
     <SidebarProvider>
-      <div className="flex h-screen w-full bg-sidebar">
-        <AppSidebar />
-        <SidebarInset className="relative">
-          <Outlet />
-        </SidebarInset>
-      </div>
+      <AppSidebar variant="inset" />
+      <SidebarInset className="relative overflow-hidden">
+        <Outlet />
+      </SidebarInset>
       <CommandPalette />
     </SidebarProvider>
   );
