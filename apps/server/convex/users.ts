@@ -431,6 +431,29 @@ export const getOpenRouterKey = query({
 	},
 });
 
+/**
+ * Check if a user has an OpenRouter API key stored (returns boolean, not the actual key).
+ * This is used by the client to determine if the user has connected their OpenRouter account.
+ */
+export const hasOpenRouterKey = query({
+	args: {
+		userId: v.id("users"),
+	},
+	returns: v.boolean(),
+	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
+		// Try profile first (primary location)
+		const profile = await getProfileByUserId(ctx, userId);
+		if (profile?.encryptedOpenRouterKey) {
+			return true;
+		}
+
+		// Fall back to user table during migration
+		const user = await ctx.db.get(userId);
+		return !!user?.encryptedOpenRouterKey;
+	},
+});
+
 export const getOpenRouterKeyInternal = internalQuery({
 	args: {
 		userId: v.id("users"),
