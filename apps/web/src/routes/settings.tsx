@@ -2,7 +2,7 @@
  * Settings Page
  */
 
-import {   useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@server/convex/_generated/api";
@@ -365,7 +365,12 @@ function AccountSection({
 }
 
 function ProvidersSection() {
-  const { apiKey, clearApiKey } = useOpenRouterKey();
+  const { hasApiKey, clearApiKey, initialize } = useOpenRouterKey();
+
+  // Initialize to check server for existing API key
+  useEffect(() => {
+    void initialize();
+  }, [initialize]);
   const activeProvider = useProviderStore((s) => s.activeProvider);
   const setActiveProvider = useProviderStore((s) => s.setActiveProvider);
   const dailyUsageCents = useProviderStore((s) => s.dailyUsageCents);
@@ -480,15 +485,15 @@ function ProvidersSection() {
               "rounded-xl border p-4 transition-all",
               activeProvider === "openrouter"
                 ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                : apiKey
+                : hasApiKey
                   ? "border-border bg-card"
                   : "border-dashed border-border bg-card",
             )}
           >
             <button
-              onClick={() => apiKey && setActiveProvider("openrouter")}
-              disabled={!apiKey}
-              className={cn("flex w-full items-start gap-4 text-left", !apiKey && "cursor-default")}
+              onClick={() => hasApiKey && setActiveProvider("openrouter")}
+              disabled={!hasApiKey}
+              className={cn("flex w-full items-start gap-4 text-left", !hasApiKey && "cursor-default")}
             >
               <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-violet-500 to-purple-600">
                 <img
@@ -503,22 +508,17 @@ function ProvidersSection() {
               <div className="flex-1 space-y-1">
                 <div className="flex items-center gap-2">
                   <p className="font-semibold">Personal OpenRouter</p>
-                  {apiKey && (
+                  {hasApiKey && (
                     <span className="rounded-full bg-primary/10 px-2 py-0.5 text-caption font-medium text-primary">
                       CONNECTED
                     </span>
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {apiKey
+                  {hasApiKey
                     ? "Unlimited access with your own API key"
                     : "Use your own OpenRouter account for unlimited access"}
                 </p>
-                {apiKey && activeProvider === "openrouter" && (
-                  <p className="mt-2 font-mono text-xs text-muted-foreground">
-                    {apiKey.slice(0, 8)}...{apiKey.slice(-4)}
-                  </p>
-                )}
               </div>
               {activeProvider === "openrouter" && (
                 <svg
@@ -539,7 +539,7 @@ function ProvidersSection() {
 
             {/* Connect/Disconnect button integrated into card */}
             <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-3">
-              {apiKey ? (
+              {hasApiKey ? (
                 <>
                   <a
                     href="https://openrouter.ai/settings/keys"

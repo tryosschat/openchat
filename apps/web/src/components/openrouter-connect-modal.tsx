@@ -17,19 +17,19 @@ interface OpenRouterConnectModalProps {
 }
 
 export function OpenRouterConnectModal({ open, onOpenChange }: OpenRouterConnectModalProps) {
-  const { apiKey, initiateLogin, isLoading } = useOpenRouterKey();
+  const { hasApiKey, initiateLogin, isLoading } = useOpenRouterKey();
   const [isClosing, setIsClosing] = useState(false);
 
   // Close modal when API key is set (successful connection)
   useEffect(() => {
-    if (apiKey && open) {
+    if (hasApiKey && open) {
       // Small delay to show success state
       const timer = setTimeout(() => {
         onOpenChange(false);
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [apiKey, open, onOpenChange]);
+  }, [hasApiKey, open, onOpenChange]);
 
   const handleConnect = () => {
     const callbackUrl = `${window.location.origin}/openrouter/callback`;
@@ -98,7 +98,7 @@ export function OpenRouterConnectModal({ open, onOpenChange }: OpenRouterConnect
 
           {/* Content */}
           <div className="p-6">
-            {apiKey ? (
+            {hasApiKey ? (
               // Success state
               <div className="flex flex-col items-center gap-4 py-4">
                 <div className="flex size-16 items-center justify-center rounded-full bg-success/10">
