@@ -70,7 +70,7 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 					if (response.ok) {
 						const data = await response.json();
 						set(
-							{ hasApiKey: data.hasKey, isLoading: false },
+							{ hasApiKey: !!data.hasKey, isLoading: false },
 							false,
 							"openrouter/initializeSuccess",
 						);
@@ -98,6 +98,7 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 				try {
 					const response = await fetch("/api/openrouter-key", {
 						method: "POST",
+						credentials: "include",
 						headers: {
 							"Content-Type": "application/json",
 						},
@@ -123,7 +124,10 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 			clearApiKey: async () => {
 				set({ isLoading: true, error: null }, false, "openrouter/clearApiKey");
 				try {
-					const response = await fetch("/api/openrouter-key", { method: "DELETE" });
+					const response = await fetch("/api/openrouter-key", {
+						method: "DELETE",
+						credentials: "include",
+					});
 					if (!response.ok) {
 						throw new Error("Failed to remove API key");
 					}
@@ -178,6 +182,7 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 					// Store the API key server-side only
 					const response = await fetch("/api/openrouter-key", {
 						method: "POST",
+						credentials: "include",
 						headers: {
 							"Content-Type": "application/json",
 						},
