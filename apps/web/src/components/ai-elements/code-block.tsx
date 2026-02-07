@@ -67,10 +67,16 @@ const toBundledLanguage = (language: string): BundledLanguage => {
     : 'bash'
 }
 
+const hashCode = (value: string) => {
+  let hash = 5381
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(i)
+  }
+  return (hash >>> 0).toString(36)
+}
+
 const getTokenCacheKey = (code: string, language: string) => {
-  const start = code.slice(0, 120)
-  const end = code.length > 120 ? code.slice(-120) : ''
-  return `${language}:${code.length}:${start}:${end}`
+  return `${language}:${code.length}:${hashCode(code)}`
 }
 
 const getHighlighter = (
@@ -84,6 +90,9 @@ const getHighlighter = (
   const highlighterPromise = createHighlighter({
     langs: [language],
     themes: ['github-light', 'min-dark'],
+  }).catch((error) => {
+    highlighterCache.delete(language)
+    throw error
   })
 
   highlighterCache.set(language, highlighterPromise)
@@ -116,23 +125,26 @@ const highlightCode = async (
   }
 
   const promise = (async () => {
-    const lang = toBundledLanguage(language)
-    const highlighter = await getHighlighter(lang)
-    const result = highlighter.codeToTokens(code, {
-      lang,
-      themes: {
-        light: 'github-light',
-        dark: 'min-dark',
-      },
-    })
+    try {
+      const lang = toBundledLanguage(language)
+      const highlighter = await getHighlighter(lang)
+      const result = highlighter.codeToTokens(code, {
+        lang,
+        themes: {
+          light: 'github-light',
+          dark: 'min-dark',
+        },
+      })
 
-    const tokenized: TokenizedCode = {
-      tokens: result.tokens,
+      const tokenized: TokenizedCode = {
+        tokens: result.tokens,
+      }
+
+      tokenCache.set(cacheKey, tokenized)
+      return tokenized
+    } finally {
+      inflightTokenCache.delete(cacheKey)
     }
-
-    tokenCache.set(cacheKey, tokenized)
-    inflightTokenCache.delete(cacheKey)
-    return tokenized
   })()
 
   inflightTokenCache.set(cacheKey, promise)
