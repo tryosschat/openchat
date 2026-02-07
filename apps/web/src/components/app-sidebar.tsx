@@ -225,9 +225,13 @@ function ChatGroup({
   );
 }
 
-export function AppSidebar() {
+export function AppSidebar({
+  variant = "inset",
+  collapsible = "offcanvas",
+  ...props
+}: React.ComponentProps<typeof Sidebar>) {
   const { user } = useAuth();
-  const { open, isMobile, setOpen } = useSidebar();
+  const { open, isMobile, setOpen, setOpenMobile } = useSidebar();
   const navigate = useNavigate();
   const activeProvider = useProviderStore((s) => s.activeProvider);
   const chatTitleLength = useChatTitleStore((s) => s.length);
@@ -322,14 +326,14 @@ export function AppSidebar() {
 
   const handleNewChat = () => {
     if (isMobile) {
-      setOpen(false);
+      setOpenMobile(false);
     }
     navigate({ to: "/" });
   };
 
   const handleChatClick = (chatId: string) => {
     if (isMobile) {
-      setOpen(false);
+      setOpenMobile(false);
     }
     navigate({ to: "/c/$chatId", params: { chatId } });
   };
@@ -580,7 +584,7 @@ export function AppSidebar() {
     <>
       {/* Mobile hamburger menu - CSS-based visibility (md:hidden), no JS required */}
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => (isMobile ? setOpenMobile(true) : setOpen(true))}
         className="fixed left-3 top-3 z-50 flex size-11 items-center justify-center rounded-xl bg-sidebar/95 shadow-lg ring-1 ring-sidebar-border/50 backdrop-blur-sm text-sidebar-foreground/70 transition-all duration-200 hover:bg-sidebar hover:text-sidebar-foreground active:scale-95 md:hidden"
         aria-label="Open menu"
       >
@@ -591,7 +595,7 @@ export function AppSidebar() {
       <div
         className={cn(
           "fixed left-3 top-3 z-50 flex items-center gap-1 rounded-xl bg-sidebar/95 p-1 shadow-lg ring-1 ring-sidebar-border/50 backdrop-blur-sm",
-          "transition-[opacity,transform] duration-[220ms] ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+          "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
           "hidden md:flex",
           open ? "pointer-events-none opacity-0 scale-95" : "opacity-100 scale-100",
         )}
@@ -613,12 +617,12 @@ export function AppSidebar() {
       </div>
 
       {/* Main sidebar */}
-      <Sidebar>
+      <Sidebar variant={variant} collapsible={collapsible} {...props}>
         {/* Header: Toggle button left, Logo centered */}
         <div className="relative flex h-14 shrink-0 items-center justify-center px-3">
           {/* Toggle button - absolute positioned left */}
           <button
-            onClick={() => setOpen(false)}
+            onClick={() => (isMobile ? setOpenMobile(false) : setOpen(false))}
             className="absolute left-3 flex size-9 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
             title="Close sidebar"
           >

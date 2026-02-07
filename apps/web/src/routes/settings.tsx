@@ -365,17 +365,19 @@ function AccountSection({
 }
 
 function ProvidersSection() {
-  const { hasApiKey, clearApiKey, initialize } = useOpenRouterKey();
+	const { hasApiKey, clearApiKey, initialize, isInitialized } = useOpenRouterKey();
+	const activeProvider = useProviderStore((s) => s.activeProvider);
+	const setActiveProvider = useProviderStore((s) => s.setActiveProvider);
+	const dailyUsageCents = useProviderStore((s) => s.dailyUsageCents);
+	const remainingBudget = useProviderStore((s) => s.remainingBudgetCents());
+	const [connectModalOpen, setConnectModalOpen] = useState(false);
 
-  // Initialize to check server for existing API key
-  useEffect(() => {
-    void initialize();
-  }, [initialize]);
-  const activeProvider = useProviderStore((s) => s.activeProvider);
-  const setActiveProvider = useProviderStore((s) => s.setActiveProvider);
-  const dailyUsageCents = useProviderStore((s) => s.dailyUsageCents);
-  const remainingBudget = useProviderStore((s) => s.remainingBudgetCents());
-  const [connectModalOpen, setConnectModalOpen] = useState(false);
+	// Initialize to check server for existing API key
+	useEffect(() => {
+		if (!isInitialized) {
+			void initialize();
+		}
+	}, [isInitialized, initialize]);
 
 	const handleDisconnect = (e: React.MouseEvent) => {
 		e.stopPropagation();

@@ -7,6 +7,12 @@ import { getAuthUser, getConvexClientForRequest, getConvexUserId, getConvexUserI
 export const Route = createFileRoute("/api/openrouter-key")({
 	server: {
 		handlers: {
+			/**
+			 * GET: Check if user has an OpenRouter API key stored
+			 * Returns { hasKey: boolean } - never exposes the actual key to the client
+			 *
+			 * Uses read-only lookup to avoid side-effects (user creation) in GET requests.
+			 */
 			GET: async ({ request }) => {
 				try {
 					if (!isSameOrigin(request)) {
@@ -27,13 +33,13 @@ export const Route = createFileRoute("/api/openrouter-key")({
 						return json({ hasKey: false });
 					}
 
-					const encryptedKey = await convexClient.query(api.users.getOpenRouterKey, {
+					const hasKey = await convexClient.query(api.users.hasOpenRouterKey, {
 						userId: convexUserId,
 					});
 
-					return json({ hasKey: !!encryptedKey });
+					return json({ hasKey });
 				} catch (error) {
-					console.error("[OpenRouterKey] Failed to check key", error);
+					console.error("[OpenRouterKey] Failed to check key status", error);
 					return json({ hasKey: false });
 				}
 			},

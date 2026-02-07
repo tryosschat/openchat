@@ -30,9 +30,41 @@ export async function getConvexAuthToken(request: Request): Promise<string | nul
 	return data?.token ?? null;
 }
 
+/**
+ * Validates that the request origin matches the server origin for CSRF protection.
+ *
+ * For state-changing methods (POST, PUT, DELETE, PATCH), we require a valid Origin
+ * header that matches the server's origin. Missing or "null" origins are rejected
+ * to prevent CSRF attacks from sandboxed iframes or file:// contexts.
+ *
+ * For safe methods (GET, HEAD, OPTIONS), we allow missing Origin headers since
+ * these requests should be read-only and browsers don't always send Origin for
+ * same-origin navigational requests.
+ */
 export function isSameOrigin(request: Request): boolean {
 	const origin = request.headers.get("origin");
-	if (!origin) return true;
+	const method = request.method.toUpperCase();
+	const stateChangingMethods = ["POST", "PUT", "DELETE", "PATCH"];
+
+	// Reject "null" origin (from sandboxed iframes, file:// contexts, etc.)
+	if (origin === "null") {
+		return false;
+	}
+
+	// For state-changing methods, require a valid Origin header
+	if (stateChangingMethods.includes(method)) {
+		if (!origin) {
+			return false;
+		}
+		return origin === new URL(request.url).origin;
+	}
+
+	// For safe methods (GET, HEAD, OPTIONS), allow missing Origin
+	// but still validate if present
+	if (!origin) {
+		return true;
+	}
+
 	return origin === new URL(request.url).origin;
 }
 

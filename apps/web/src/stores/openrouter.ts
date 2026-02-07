@@ -4,16 +4,20 @@
  * Manages the OpenRouter API key connection state.
  * The actual API key is stored server-side only for security.
  * Uses Zustand for state management with devtools for debugging.
+ *
+ * SECURITY NOTE: API keys are stored server-side only (encrypted in Convex).
+ * The client only tracks whether a key exists (hasApiKey boolean), never the actual key.
+ * This prevents XSS attacks from exfiltrating API keys via localStorage.
  */
 
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import {
-  clearOAuthStorage,
-  exchangeCodeForKey,
-  getStoredCodeVerifier,
-  initiateOAuthFlow,
-  validateState,
+	clearOAuthStorage,
+	exchangeCodeForKey,
+	getStoredCodeVerifier,
+	initiateOAuthFlow,
+	validateState,
 } from "../lib/openrouter-oauth";
 
 // ============================================================================
@@ -22,6 +26,8 @@ import {
 
 interface OpenRouterState {
 	// State
+	// Note: We only track whether a key exists, not the actual key value
+	// The actual key is stored server-side only for security
 	hasApiKey: boolean;
 	isLoading: boolean;
 	isInitialized: boolean;
@@ -50,32 +56,36 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 			error: null,
 
 			// Initialize by checking server for existing API key
+			// Race condition fix: set isInitialized immediately to prevent duplicate requests
 			initialize: async () => {
 				// Skip if already initialized
 				if (get().isInitialized) return;
 
 				set({ isLoading: true, isInitialized: true }, false, "openrouter/initialize");
 				try {
-					const response = await fetch("/api/openrouter-key");
+					const response = await fetch("/api/openrouter-key", {
+						method: "GET",
+						credentials: "include",
+					});
 					if (response.ok) {
 						const data = await response.json();
 						set(
-							{ hasApiKey: data.hasKey, isLoading: false, isInitialized: true },
+							{ hasApiKey: data.hasKey, isLoading: false },
 							false,
 							"openrouter/initializeSuccess",
 						);
 					} else {
 						// Not authenticated or error - assume no key
 						set(
-							{ hasApiKey: false, isLoading: false, isInitialized: true },
+							{ hasApiKey: false, isLoading: false },
 							false,
 							"openrouter/initializeNoAuth",
 						);
 					}
 				} catch {
-					// Network error - assume no key but mark as initialized
+					// Network error - assume no key but keep initialized
 					set(
-						{ hasApiKey: false, isLoading: false, isInitialized: true },
+						{ hasApiKey: false, isLoading: false },
 						false,
 						"openrouter/initializeError",
 					);
@@ -102,7 +112,8 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 						"openrouter/setApiKeySuccess",
 					);
 				} catch (error) {
-					const message = error instanceof Error ? error.message : "Failed to store API key";
+					const message =
+						error instanceof Error ? error.message : "Failed to store API key";
 					set({ isLoading: false, error: message }, false, "openrouter/setApiKeyError");
 					throw error;
 				}
@@ -122,7 +133,8 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 						"openrouter/clearApiKeySuccess",
 					);
 				} catch (error) {
-					const message = error instanceof Error ? error.message : "Failed to remove API key";
+					const message =
+						error instanceof Error ? error.message : "Failed to remove API key";
 					set({ isLoading: false, error: message }, false, "openrouter/clearApiKeyError");
 					throw error;
 				}
@@ -135,7 +147,8 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 					await initiateOAuthFlow(callbackUrl);
 					// Note: This won't resolve as the page will redirect
 				} catch (error) {
-					const message = error instanceof Error ? error.message : "Failed to initiate login";
+					const message =
+						error instanceof Error ? error.message : "Failed to initiate login";
 					set({ isLoading: false, error: message }, false, "openrouter/initiateLoginError");
 				}
 			},
@@ -180,8 +193,13 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 					);
 					return true;
 				} catch (error) {
-					const message = error instanceof Error ? error.message : "Authentication failed";
-					set({ isLoading: false, error: message }, false, "openrouter/handleCallbackError");
+					const message =
+						error instanceof Error ? error.message : "Authentication failed";
+					set(
+						{ isLoading: false, error: message },
+						false,
+						"openrouter/handleCallbackError",
+					);
 					return false;
 				}
 			},
@@ -200,15 +218,20 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 /**
  * Hook for accessing OpenRouter API key state and actions.
  *
+ * SECURITY: The actual API key is never stored client-side.
+ * Only the `hasApiKey` boolean is tracked to indicate if a key exists server-side.
+ *
  * @example
  * ```tsx
  * function MyComponent() {
- *   const { hasApiKey, initiateLogin, clearApiKey, initialize } = useOpenRouterKey();
+ *   const { hasApiKey, initiateLogin, clearApiKey, initialize, isInitialized } = useOpenRouterKey();
  *
  *   // Initialize on mount to check server for existing key
  *   useEffect(() => {
- *     initialize();
- *   }, [initialize]);
+ *     if (!isInitialized) {
+ *       initialize();
+ *     }
+ *   }, [isInitialized, initialize]);
  *
  *   if (!hasApiKey) {
  *     return <button onClick={() => initiateLogin("/callback")}>Connect</button>;

@@ -118,8 +118,8 @@ export const createAuth = (
 					}
 				: {}),
 		},
-		// Trust origins including wildcard patterns for previews
-		trustedOrigins,
+	// Trust explicitly configured origins (no wildcards for security)
+	trustedOrigins,
 		plugins,
 	});
 	

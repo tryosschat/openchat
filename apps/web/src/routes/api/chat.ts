@@ -20,19 +20,81 @@ const CHAT_RATE_LIMIT_WINDOW_SECONDS = 60;
 const CHAT_RATE_LIMIT_MAX_USER = 30;
 const CHAT_RATE_LIMIT_MAX_IP = 60;
 
+/**
+ * Controls whether to trust proxy-forwarded headers for client IP extraction.
+ * Set to "cloudflare" to trust cf-connecting-ip only
+ * Set to "true" or "1" to trust x-forwarded-for and x-real-ip
+ * Leave unset or empty to not trust any forwarding headers (direct requests only)
+ */
+const TRUST_PROXY_FORWARDED = process.env.TRUST_PROXY_FORWARDED;
+
+/**
+ * Extracts the client IP address from the request.
+ * 
+ * SECURITY: This function only honors proxy headers when explicitly configured
+ * via TRUST_PROXY_FORWARDED env var. This prevents attackers from spoofing
+ * their IP by setting x-forwarded-for headers on direct requests.
+ * 
+ * @param request - The incoming HTTP request
+ * @returns The client IP address or null if it cannot be determined
+ */
 function getRequestIp(request: Request): string | null {
-	const forwardedFor = request.headers.get("x-forwarded-for");
-	if (forwardedFor) {
-		return forwardedFor.split(",")[0]?.trim() || null;
+	// Only trust Cloudflare headers when explicitly configured
+	if (TRUST_PROXY_FORWARDED?.toLowerCase() === "cloudflare") {
+		const cfConnectingIp = request.headers.get("cf-connecting-ip");
+		if (cfConnectingIp) {
+			return cfConnectingIp.trim();
+		}
+		// Fall through - no trusted IP available
+		return null;
 	}
-	return (
-		request.headers.get("x-real-ip") ||
-		request.headers.get("cf-connecting-ip") ||
-		request.headers.get("true-client-ip") ||
-		null
-	);
+
+	// Only trust standard proxy headers when explicitly enabled
+	if (TRUST_PROXY_FORWARDED === "true" || TRUST_PROXY_FORWARDED === "1") {
+		// x-forwarded-for may contain a comma-separated list of IPs
+		// The first IP is the original client, subsequent ones are proxies
+		const forwardedFor = request.headers.get("x-forwarded-for");
+		if (forwardedFor) {
+			const firstIp = forwardedFor.split(",")[0]?.trim();
+			if (firstIp) {
+				return firstIp;
+			}
+		}
+
+		// x-real-ip is typically set by reverse proxies (nginx, etc.)
+		const realIp = request.headers.get("x-real-ip");
+		if (realIp) {
+			return realIp.trim();
+		}
+
+		// true-client-ip is used by some CDNs (Akamai, etc.)
+		const trueClientIp = request.headers.get("true-client-ip");
+		if (trueClientIp) {
+			return trueClientIp.trim();
+		}
+	}
+
+	// No trusted forwarding headers configured or available
+	// In production behind a proxy, this means IP-based rate limiting will be ineffective
+	// but user-based rate limiting (enforced first) will still protect against abuse
+	return null;
 }
 
+/**
+ * Enforces rate limiting on chat requests.
+ * 
+ * Rate limiting strategy (defense in depth):
+ * 1. USER-BASED (primary): Limits requests per authenticated user - cannot be spoofed
+ * 2. IP-BASED (secondary): Additional layer when trusted proxy is configured
+ * 
+ * The user-based limit is always enforced first and is the primary protection.
+ * IP-based limiting is only effective when TRUST_PROXY_FORWARDED is properly
+ * configured for your deployment environment (e.g., "cloudflare" or "true").
+ * 
+ * @param request - The incoming HTTP request
+ * @param userId - The authenticated user's ID (from session/token, not spoofable)
+ * @returns 429 response if rate limited, null otherwise
+ */
 async function enforceRateLimit(request: Request, userId: string): Promise<Response | null> {
 	const redisReady = await redis.ensureConnected();
 	if (!redisReady) return null;
