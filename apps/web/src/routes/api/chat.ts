@@ -40,7 +40,7 @@ const TRUST_PROXY_FORWARDED = process.env.TRUST_PROXY_FORWARDED;
  */
 function getRequestIp(request: Request): string | null {
 	// Only trust Cloudflare headers when explicitly configured
-	if (TRUST_PROXY_FORWARDED === "cloudflare") {
+	if (TRUST_PROXY_FORWARDED?.toLowerCase() === "cloudflare") {
 		const cfConnectingIp = request.headers.get("cf-connecting-ip");
 		if (cfConnectingIp) {
 			return cfConnectingIp.trim();
