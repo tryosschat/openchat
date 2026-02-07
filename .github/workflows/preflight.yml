@@ -13,5 +13,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Preflight scan
-        continue-on-error: true
-        run: npx @preflightsh/preflight scan --ci --format json
+        shell: bash
+        run: |
+          set +e
+          npx --yes @preflightsh/preflight@0.12.5 scan --ci --format json
+          status=$?
+          set -e
+
+          # Preflight uses exit code 1/2 for scan findings; only fail on unexpected runtime errors.
+          if [ "$status" -gt 2 ]; then
+            echo "::error::Preflight CLI failed unexpectedly (exit code $status)"
+            exit "$status"
+          fi
+
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::Preflight reported findings (exit code $status)"
+          fi
