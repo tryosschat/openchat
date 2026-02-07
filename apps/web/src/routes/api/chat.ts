@@ -41,16 +41,16 @@ const TRUST_PROXY_FORWARDED = process.env.TRUST_PROXY_FORWARDED;
 function getRequestIp(request: Request): string | null {
 	// Only trust Cloudflare headers when explicitly configured
 	if (TRUST_PROXY_FORWARDED?.toLowerCase() === "cloudflare") {
-		const cfConnectingIp = request.headers.get("cf-connecting-ip");
+		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
 		if (cfConnectingIp) {
-			return cfConnectingIp.trim();
+			return cfConnectingIp;
 		}
 		// Fall through - no trusted IP available
 		return null;
 	}
 
 	// Only trust standard proxy headers when explicitly enabled
-	if (TRUST_PROXY_FORWARDED === "true" || TRUST_PROXY_FORWARDED === "1") {
+	if (TRUST_PROXY_FORWARDED?.toLowerCase() === "true" || TRUST_PROXY_FORWARDED === "1") {
 		// x-forwarded-for may contain a comma-separated list of IPs
 		// The first IP is the original client, subsequent ones are proxies
 		const forwardedFor = request.headers.get("x-forwarded-for");
@@ -62,15 +62,15 @@ function getRequestIp(request: Request): string | null {
 		}
 
 		// x-real-ip is typically set by reverse proxies (nginx, etc.)
-		const realIp = request.headers.get("x-real-ip");
+		const realIp = request.headers.get("x-real-ip")?.trim();
 		if (realIp) {
-			return realIp.trim();
+			return realIp;
 		}
 
 		// true-client-ip is used by some CDNs (Akamai, etc.)
-		const trueClientIp = request.headers.get("true-client-ip");
+		const trueClientIp = request.headers.get("true-client-ip")?.trim();
 		if (trueClientIp) {
-			return trueClientIp.trim();
+			return trueClientIp;
 		}
 	}
 

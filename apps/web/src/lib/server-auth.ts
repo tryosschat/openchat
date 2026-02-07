@@ -105,6 +105,21 @@ export async function getConvexUserId(
 	return created.userId;
 }
 
+/**
+ * Read-only variant of getConvexUserId that only queries for an existing user.
+ * Use this in GET handlers to avoid side-effects (user creation).
+ * Accepts an existing ConvexHttpClient to avoid redundant auth token fetches.
+ */
+export async function getConvexUserIdReadOnly(
+	authUser: AuthSessionUser,
+	convexClient: ReturnType<typeof createConvexServerClient>,
+): Promise<Id<"users"> | null> {
+	const existing = await convexClient.query(api.users.getByExternalId, {
+		externalId: authUser.id,
+	});
+	return existing?._id ?? null;
+}
+
 export async function getConvexClientForRequest(request: Request) {
 	const authToken = await getConvexAuthToken(request);
 	if (!authToken) return null;

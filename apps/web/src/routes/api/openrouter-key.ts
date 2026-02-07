@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { json } from "@tanstack/react-start";
 import { api } from "@server/convex/_generated/api";
 import { encryptSecret } from "@/lib/server-crypto";
-import { getAuthUser, getConvexClientForRequest, getConvexUserId, isSameOrigin } from "@/lib/server-auth";
+import { getAuthUser, getConvexClientForRequest, getConvexUserId, getConvexUserIdReadOnly, isSameOrigin } from "@/lib/server-auth";
 
 export const Route = createFileRoute("/api/openrouter-key")({
 	server: {
@@ -10,6 +10,8 @@ export const Route = createFileRoute("/api/openrouter-key")({
 			/**
 			 * GET: Check if user has an OpenRouter API key stored
 			 * Returns { hasKey: boolean } - never exposes the actual key to the client
+			 *
+			 * Uses read-only lookup to avoid side-effects (user creation) in GET requests.
 			 */
 			GET: async ({ request }) => {
 				try {
@@ -21,13 +23,13 @@ export const Route = createFileRoute("/api/openrouter-key")({
 						return json({ hasKey: false });
 					}
 
-					const convexUserId = await getConvexUserId(authUser, request);
-					if (!convexUserId) {
+					const convexClient = await getConvexClientForRequest(request);
+					if (!convexClient) {
 						return json({ hasKey: false });
 					}
 
-					const convexClient = await getConvexClientForRequest(request);
-					if (!convexClient) {
+					const convexUserId = await getConvexUserIdReadOnly(authUser, convexClient);
+					if (!convexUserId) {
 						return json({ hasKey: false });
 					}
 

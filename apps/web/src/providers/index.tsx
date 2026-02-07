@@ -148,10 +148,10 @@ function UsageSyncProvider({ children }: { children: React.ReactNode }) {
  * This syncs the hasApiKey state without exposing the actual key to the client.
  */
 function OpenRouterKeyStatusProvider({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading } = useAuth();
-  const loadApiKeyStatus = useOpenRouterStore((s) => s.loadApiKeyStatus);
-  const checkedRef = useRef(false);
-  const checkingRef = useRef(false);
+	const { isAuthenticated, loading } = useAuth();
+	const initialize = useOpenRouterStore((s) => s.initialize);
+	const checkedRef = useRef(false);
+	const checkingRef = useRef(false);
 
   useEffect(() => {
     // Only check once when user is authenticated
@@ -161,17 +161,17 @@ function OpenRouterKeyStatusProvider({ children }: { children: React.ReactNode }
 
     checkingRef.current = true;
     
-    loadApiKeyStatus()
-      .then(() => {
-        checkedRef.current = true;
-        console.log("[OpenRouterKeyStatus] API key status checked successfully");
-      })
+		initialize()
+			.then(() => {
+				checkedRef.current = true;
+				console.log("[OpenRouterKeyStatus] API key status checked successfully");
+			})
       .catch((error: unknown) => {
         console.error("[OpenRouterKeyStatus] Failed to check API key status:", error);
         // Reset so we can retry on next render
         checkingRef.current = false;
       });
-  }, [loading, isAuthenticated, loadApiKeyStatus]);
+	}, [loading, isAuthenticated, initialize]);
 
   // Reset checked state when user logs out
   useEffect(() => {

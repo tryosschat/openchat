@@ -365,19 +365,19 @@ function AccountSection({
 }
 
 function ProvidersSection() {
-	const { hasApiKey, clearApiKey, loadApiKeyStatus, isInitialized } = useOpenRouterKey();
+	const { hasApiKey, clearApiKey, initialize, isInitialized } = useOpenRouterKey();
 	const activeProvider = useProviderStore((s) => s.activeProvider);
 	const setActiveProvider = useProviderStore((s) => s.setActiveProvider);
 	const dailyUsageCents = useProviderStore((s) => s.dailyUsageCents);
 	const remainingBudget = useProviderStore((s) => s.remainingBudgetCents());
 	const [connectModalOpen, setConnectModalOpen] = useState(false);
 
-	// Load API key status on mount
+	// Initialize to check server for existing API key
 	useEffect(() => {
 		if (!isInitialized) {
-			void loadApiKeyStatus();
+			void initialize();
 		}
-	}, [isInitialized, loadApiKeyStatus]);
+	}, [isInitialized, initialize]);
 
 	const handleDisconnect = (e: React.MouseEvent) => {
 		e.stopPropagation();
