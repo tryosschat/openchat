@@ -70,7 +70,7 @@ export const useOpenRouterStore = create<OpenRouterState>()(
 						);
 					} else {
 						// Not authenticated or error - just mark as initialized
-						set({ isInitialized: true }, false, "openrouter/loadApiKeyStatusNoAuth");
+						set({ hasApiKey: false, isInitialized: true }, false, "openrouter/loadApiKeyStatusNoAuth");
 					}
 				} catch {
 					// Network error - mark as initialized anyway
