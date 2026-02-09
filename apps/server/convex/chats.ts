@@ -212,41 +212,43 @@ export const fork = mutation({
 			forkedFromMessageId: args.messageId,
 		});
 
-		for (const message of messagesToCopy) {
-			await ctx.db.insert("messages", {
-				chatId: newChatId,
-				clientMessageId: message.clientMessageId,
-				role: message.role,
-				content: message.content,
-				modelId: message.modelId,
-				provider: message.provider,
-				reasoningEffort: message.reasoningEffort,
-				webSearchEnabled: message.webSearchEnabled,
-				webSearchUsed: message.webSearchUsed,
-				webSearchCallCount: message.webSearchCallCount,
-				toolCallCount: message.toolCallCount,
-				maxSteps: message.maxSteps,
-				reasoning: message.reasoning,
-				thinkingTimeMs: message.thinkingTimeMs,
-				thinkingTimeSec: message.thinkingTimeSec,
-				reasoningCharCount: message.reasoningCharCount,
-				reasoningChunkCount: message.reasoningChunkCount,
-				reasoningTokenCount: message.reasoningTokenCount,
-				reasoningRequested: message.reasoningRequested,
-				toolInvocations: message.toolInvocations,
-				chainOfThoughtParts: message.chainOfThoughtParts,
-				tokenUsage: message.tokenUsage,
-				tokensPerSecond: message.tokensPerSecond,
-				timeToFirstTokenMs: message.timeToFirstTokenMs,
-				totalDurationMs: message.totalDurationMs,
-				attachments: message.attachments,
-				error: message.error,
-				messageType: message.messageType,
-				createdAt: message.createdAt,
-				status: "completed",
-				userId: message.userId,
-			});
-		}
+		await Promise.all(
+			messagesToCopy.map((message) =>
+				ctx.db.insert("messages", {
+					chatId: newChatId,
+					clientMessageId: message.clientMessageId,
+					role: message.role,
+					content: message.content,
+					modelId: message.modelId,
+					provider: message.provider,
+					reasoningEffort: message.reasoningEffort,
+					webSearchEnabled: message.webSearchEnabled,
+					webSearchUsed: message.webSearchUsed,
+					webSearchCallCount: message.webSearchCallCount,
+					toolCallCount: message.toolCallCount,
+					maxSteps: message.maxSteps,
+					reasoning: message.reasoning,
+					thinkingTimeMs: message.thinkingTimeMs,
+					thinkingTimeSec: message.thinkingTimeSec,
+					reasoningCharCount: message.reasoningCharCount,
+					reasoningChunkCount: message.reasoningChunkCount,
+					reasoningTokenCount: message.reasoningTokenCount,
+					reasoningRequested: message.reasoningRequested,
+					toolInvocations: message.toolInvocations,
+					chainOfThoughtParts: message.chainOfThoughtParts,
+					tokenUsage: message.tokenUsage,
+					tokensPerSecond: message.tokensPerSecond,
+					timeToFirstTokenMs: message.timeToFirstTokenMs,
+					totalDurationMs: message.totalDurationMs,
+					attachments: message.attachments,
+					error: message.error,
+					messageType: message.messageType,
+					createdAt: message.createdAt,
+					status: "completed",
+					userId: message.userId,
+				})
+			)
+		);
 
 		await incrementStat(ctx, STAT_KEYS.CHATS_TOTAL, 1);
 

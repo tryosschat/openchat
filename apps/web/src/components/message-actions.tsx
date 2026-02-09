@@ -20,6 +20,38 @@ import { useFavoriteModels } from "@/hooks/use-favorite-models";
 import { copyMessageText } from "@/lib/clipboard";
 import { useModelStore, useModels } from "@/stores/model";
 
+function useGroupedModels() {
+	const { models } = useModels();
+	const { favorites } = useFavoriteModels();
+	const selectedModelId = useModelStore((s) => s.selectedModelId);
+
+	const favoriteModels = useMemo(() => {
+		return models
+			.filter((model) => favorites.has(model.id))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	}, [models, favorites]);
+
+	const providerGroups = useMemo(() => {
+		const grouped = new Map<string, Array<(typeof models)[number]>>();
+		for (const model of models) {
+			if (favorites.has(model.id)) continue;
+			const key = model.provider;
+			const list = grouped.get(key) ?? [];
+			list.push(model);
+			grouped.set(key, list);
+		}
+
+		return Array.from(grouped.entries())
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([provider, providerModels]) => ({
+				provider,
+				models: providerModels.sort((a, b) => a.name.localeCompare(b.name)),
+			}));
+	}, [models, favorites]);
+
+	return { favoriteModels, providerGroups, selectedModelId };
+}
+
 interface AnalyticsData {
 	modelId?: string;
 	tokensPerSecond?: number;
@@ -129,49 +161,17 @@ function CopyButton({ content }: { content: string }) {
 }
 
 function RetryDropdown({
-	messageId,
 	onRetry,
 }: {
-	messageId: string;
 	onRetry?: (modelId?: string) => void;
 }) {
-	const { models } = useModels();
-	const { favorites } = useFavoriteModels();
-	const selectedModelId = useModelStore((s) => s.selectedModelId);
-
-	const favoriteModels = useMemo(() => {
-		return models
-			.filter((model) => favorites.has(model.id))
-			.sort((a, b) => a.name.localeCompare(b.name));
-	}, [models, favorites]);
-
-	const providerGroups = useMemo(() => {
-		const grouped = new Map<string, Array<(typeof models)[number]>>();
-		for (const model of models) {
-			if (favorites.has(model.id)) continue;
-			const key = model.provider;
-			const list = grouped.get(key) ?? [];
-			list.push(model);
-			grouped.set(key, list);
-		}
-
-		return Array.from(grouped.entries())
-			.sort(([a], [b]) => a.localeCompare(b))
-			.map(([provider, providerModels]) => ({
-				provider,
-				models: providerModels.sort((a, b) => a.name.localeCompare(b.name)),
-			}));
-	}, [models, favorites]);
+	const { favoriteModels, providerGroups, selectedModelId } = useGroupedModels();
 
 	const handleRetry = useCallback(
 		(modelId?: string) => {
-			if (onRetry) {
-				onRetry(modelId);
-				return;
-			}
-			console.log("[message-actions] retry", messageId, modelId ?? "same");
+			onRetry?.(modelId);
 		},
-		[messageId, onRetry],
+		[onRetry],
 	);
 
 	return (
@@ -241,49 +241,17 @@ function RetryDropdown({
 }
 
 function ForkDropdown({
-	messageId,
 	onFork,
 }: {
-	messageId: string;
 	onFork?: (modelId?: string) => void;
 }) {
-	const { models } = useModels();
-	const { favorites } = useFavoriteModels();
-	const selectedModelId = useModelStore((s) => s.selectedModelId);
-
-	const favoriteModels = useMemo(() => {
-		return models
-			.filter((model) => favorites.has(model.id))
-			.sort((a, b) => a.name.localeCompare(b.name));
-	}, [models, favorites]);
-
-	const providerGroups = useMemo(() => {
-		const grouped = new Map<string, Array<(typeof models)[number]>>();
-		for (const model of models) {
-			if (favorites.has(model.id)) continue;
-			const key = model.provider;
-			const list = grouped.get(key) ?? [];
-			list.push(model);
-			grouped.set(key, list);
-		}
-
-		return Array.from(grouped.entries())
-			.sort(([a], [b]) => a.localeCompare(b))
-			.map(([provider, providerModels]) => ({
-				provider,
-				models: providerModels.sort((a, b) => a.name.localeCompare(b.name)),
-			}));
-	}, [models, favorites]);
+	const { favoriteModels, providerGroups, selectedModelId } = useGroupedModels();
 
 	const handleFork = useCallback(
 		(modelId?: string) => {
-			if (onFork) {
-				onFork(modelId);
-				return;
-			}
-			console.log("[message-actions] fork", messageId, modelId ?? "same");
+			onFork?.(modelId);
 		},
-		[messageId, onFork],
+		[onFork],
 	);
 
 	return (
@@ -353,7 +321,6 @@ function ForkDropdown({
 }
 
 export function UserMessageActions({
-	messageId,
 	content,
 	isStreaming,
 	onEdit,
@@ -368,8 +335,7 @@ export function UserMessageActions({
 				<ActionButton
 					label="Edit"
 					onClick={
-						onEdit ??
-						(() => console.log("[message-actions] edit", messageId))
+					onEdit ?? (() => {})
 					}
 				>
 					<Pencil className="size-3.5" />
@@ -377,9 +343,9 @@ export function UserMessageActions({
 
 				<CopyButton content={content} />
 
-				<RetryDropdown messageId={messageId} onRetry={onRetry} />
+			<RetryDropdown onRetry={onRetry} />
 
-				<ForkDropdown messageId={messageId} onFork={onFork} />
+			<ForkDropdown onFork={onFork} />
 			</div>
 		</TooltipProvider>
 	);
@@ -436,7 +402,6 @@ function InlineAnalytics({ analytics }: { analytics?: AnalyticsData }) {
 }
 
 export function AssistantMessageActions({
-	messageId,
 	content,
 	isStreaming,
 	analytics,
@@ -450,8 +415,8 @@ export function AssistantMessageActions({
 			<div className="flex items-center gap-2 py-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
 				<div className="flex items-center gap-1">
 					<CopyButton content={content} />
-					<RetryDropdown messageId={messageId} onRetry={onRetry} />
-					<ForkDropdown messageId={messageId} onFork={onFork} />
+				<RetryDropdown onRetry={onRetry} />
+				<ForkDropdown onFork={onFork} />
 				</div>
 				<InlineAnalytics analytics={analytics} />
 			</div>

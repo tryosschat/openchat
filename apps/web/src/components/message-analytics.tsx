@@ -7,7 +7,6 @@ interface MessageAnalyticsProps {
 		totalTokens: number;
 	};
 	timeToFirstTokenMs?: number;
-	totalDurationMs?: number;
 	isStreaming?: boolean;
 }
 

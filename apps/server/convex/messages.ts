@@ -477,22 +477,20 @@ export const editAndRegenerate = mutation({
 			content: newContent,
 		});
 
-		const allMessages = await ctx.db
+		const messagesToDelete = await ctx.db
 			.query("messages")
 			.withIndex("by_chat_not_deleted", (q) =>
 				q.eq("chatId", args.chatId).eq("deletedAt", undefined)
 			)
 			.order("asc")
+			.filter((q) => q.gt(q.field("createdAt"), message.createdAt))
 			.collect();
 
-		let softDeletedCount = 0;
-		for (const msg of allMessages) {
-			if (msg.createdAt > message.createdAt) {
-				await ctx.db.patch(msg._id, { deletedAt: now });
-				softDeletedCount += 1;
-			}
+		for (const msg of messagesToDelete) {
+			await ctx.db.patch(msg._id, { deletedAt: now });
 		}
 
+		const softDeletedCount = messagesToDelete.length;
 		const currentCount = chat.messageCount ?? 0;
 		await ctx.db.patch(args.chatId, {
 			messageCount: Math.max(0, currentCount - softDeletedCount),

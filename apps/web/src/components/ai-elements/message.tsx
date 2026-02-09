@@ -282,7 +282,7 @@ function LinkSafetyModal({ url, isOpen, onClose, onConfirm }: LinkSafetyModalPro
 function useLinkSafetyConfig(): LinkSafetyConfig {
   return useMemo(() => ({
     enabled: true,
-    onLinkCheck: () => !isLinkSafetyDisabled(),
+    onLinkCheck: () => isLinkSafetyDisabled(),
     renderModal: (props: LinkSafetyModalProps) => <LinkSafetyModal {...props} />,
   }), [])
 }
