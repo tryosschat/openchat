@@ -84,7 +84,7 @@ interface ProviderState {
 
 // Daily limits
 export const DAILY_LIMIT_CENTS = 10;
-export const DAILY_SEARCH_LIMIT = 20;
+export const DAILY_SEARCH_LIMIT = 50;
 
 function getTodayDate(): string {
   return new Date().toISOString().split("T")[0];
@@ -274,6 +274,7 @@ export function useCanUseOSSChat(): boolean {
 export function useWebSearch() {
   const enabled = useProviderStore((s) => s.webSearchEnabled);
   const toggle = useProviderStore((s) => s.toggleWebSearch);
+  const setEnabled = useProviderStore((s) => s.setWebSearchEnabled);
   const remainingSearches = useProviderStore((s) => s.remainingSearches());
   const isLimitReached = useProviderStore((s) => s.isSearchLimitReached());
   const addSearchUsage = useProviderStore((s) => s.addSearchUsage);
@@ -281,6 +282,7 @@ export function useWebSearch() {
   return {
     enabled,
     toggle,
+    setEnabled,
     remainingSearches,
     isLimitReached,
     addSearchUsage,

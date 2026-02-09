@@ -5,12 +5,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // slow enough to look smooth. `max(1, ...)` floor prevents asymptotic stall.
 const K = 8;
 
-export function useSmoothText(text: string, isStreaming: boolean): string {
+interface UseSmoothTextOptions {
+	skipInitialAnimation?: boolean;
+}
+
+export function useSmoothText(
+	text: string,
+	isStreaming: boolean,
+	options?: UseSmoothTextOptions,
+): string {
 	const [displayed, setDisplayed] = useState(text);
 
 	const textRef = useRef(text);
 	const streamingRef = useRef(isStreaming);
 	const revealedRef = useRef(text.length);
+	const hasHandledInitialSyncRef = useRef(text.length > 0);
 	const rafRef = useRef(0);
 	const runningRef = useRef(false);
 
@@ -47,6 +56,30 @@ export function useSmoothText(text: string, isStreaming: boolean): string {
 	}, []);
 
 	useEffect(() => {
+		const shouldSkipInitialAnimation =
+			options?.skipInitialAnimation === true &&
+			!hasHandledInitialSyncRef.current &&
+			text.length > 0;
+		if (shouldSkipInitialAnimation) {
+			revealedRef.current = text.length;
+			setDisplayed(text);
+			hasHandledInitialSyncRef.current = true;
+			return;
+		}
+
+		// Never animate completed content. This prevents "tail replay" when
+		// remounting a chat and receiving a final text update from storage.
+		if (!isStreaming) {
+			cancelAnimationFrame(rafRef.current);
+			runningRef.current = false;
+			revealedRef.current = text.length;
+			setDisplayed(text);
+			if (text.length > 0) {
+				hasHandledInitialSyncRef.current = true;
+			}
+			return;
+		}
+
 		// Text replaced or shortened (new conversation) → snap
 		if (text.length < revealedRef.current) {
 			revealedRef.current = text.length;
@@ -54,11 +87,12 @@ export function useSmoothText(text: string, isStreaming: boolean): string {
 			return;
 		}
 
-		const queue = text.length - revealedRef.current;
-		if (queue > 0 || isStreaming) {
-			ensureRunning();
+		if (text.length > 0) {
+			hasHandledInitialSyncRef.current = true;
 		}
-	}, [text, isStreaming, ensureRunning]);
+
+		ensureRunning();
+	}, [text, isStreaming, ensureRunning, options?.skipInitialAnimation]);
 
 	useEffect(() => {
 		return () => {

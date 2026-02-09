@@ -11,18 +11,15 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useQuery } from "convex/react";
+import { api } from "@server/convex/_generated/api";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowUpIcon, BrainIcon, ChevronDownIcon, GlobeIcon,
-  LinkIcon,
+import { ArrowUpIcon, BrainIcon, GlobeIcon,
   Loader2Icon,
-  MinusIcon,
   PaperclipIcon,
-  PlusIcon,
   SearchIcon,
-  SlidersHorizontalIcon,
   SquareIcon,
-  XIcon } from "lucide-react";
+  } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
@@ -47,32 +44,23 @@ import { ConnectedModelSelector } from "./model-selector";
 import { StartScreen } from "./start-screen";
 import type { UIDataTypes, UIMessagePart, UITools } from "ai";
 import type {PromptInputMessage} from "./ai-elements/prompt-input";
-import type {ReasoningEffort} from "@/stores/model";
 import { cn } from "@/lib/utils";
 import { getModelById, getModelCapabilities, useModelStore, useModels } from "@/stores/model";
 import { useWebSearch } from "@/stores/provider";
 import { usePromptDraft } from "@/hooks/use-prompt-draft";
+import { useAuth } from "@/lib/auth-client";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-// Note: Using details/summary instead of Collapsible for now
+  ChainOfThought as AiChainOfThought,
+  ChainOfThoughtContent as AiChainOfThoughtContent,
+  ChainOfThoughtHeader as AiChainOfThoughtHeader,
+  ChainOfThoughtStep as AiChainOfThoughtStep,
+} from "@/components/ai-elements/chain-of-thought";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
 import { usePersistentChat } from "@/hooks/use-persistent-chat";
-import { useSmoothText } from "@/hooks/use-smooth-text";
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-
-  return isMobile;
-}
 
 function useIsMac() {
   const [isMac, setIsMac] = useState(true);
@@ -275,7 +263,10 @@ interface ChainOfThoughtStep {
 // Helper to build chain of thought steps from message parts IN ORDER
 // This preserves the exact stream order
 // Each reasoning part is its own step (not merged) so they can collapse independently
-function buildChainOfThoughtSteps(parts: Array<any>): {
+function buildChainOfThoughtSteps(
+  parts: Array<any>,
+  reasoningRequested = false,
+): {
   steps: Array<ChainOfThoughtStep>;
   isAnyStreaming: boolean;
   hasTextContent: boolean;
@@ -295,6 +286,9 @@ function buildChainOfThoughtSteps(parts: Array<any>): {
     }
 
     if (part.type === "reasoning") {
+      if (!reasoningRequested) {
+        continue;
+      }
       const isStreaming = part.state === "streaming";
       if (isStreaming) isAnyStreaming = true;
 
@@ -333,6 +327,16 @@ function buildChainOfThoughtSteps(parts: Array<any>): {
     }
   }
 
+  if (steps.length === 0 && reasoningRequested) {
+    steps.push({
+      id: "reasoning-requested-no-content",
+      type: "reasoning",
+      label: "Thought process",
+      content: "",
+      status: "complete",
+    });
+  }
+
   return { steps, isAnyStreaming, hasTextContent };
 }
 
@@ -341,221 +345,150 @@ interface ChainOfThoughtProps {
   steps: Array<ChainOfThoughtStep>;
   isStreaming?: boolean;
   hasTextContent?: boolean; // Whether the message has text content (for auto-collapse)
+  thinkingTimeSec?: number;
+  reasoningRequested?: boolean;
+  reasoningTokenCount?: number;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function ChainOfThought({
   steps,
   isStreaming = false,
-  hasTextContent = false,
+  thinkingTimeSec,
+  reasoningRequested = false,
+  reasoningTokenCount,
+  open,
+  onOpenChange,
 }: ChainOfThoughtProps) {
-  const [isOpen, setIsOpen] = useState(true); // Start open
-  const wasStreamingRef = useRef(isStreaming);
-  const hasAutoCollapsedRef = useRef(false);
+  const hasToolSteps = steps.some((step) => step.type === "tool");
+  const reasoningText = steps
+    .filter((step) => step.type === "reasoning" && step.content)
+    .map((step) => step.content ?? "")
+    .join("\n\n")
+    .trim();
+  const shouldShowHiddenReasoning =
+    reasoningRequested &&
+    !reasoningText &&
+    !isStreaming &&
+    typeof reasoningTokenCount === "number" &&
+    reasoningTokenCount > 0;
+  const shouldShowNoReasoningTokens =
+    reasoningRequested &&
+    !reasoningText &&
+    !isStreaming &&
+    typeof reasoningTokenCount === "number" &&
+    reasoningTokenCount === 0;
+  const shouldShowUnavailableReasoning =
+    reasoningRequested &&
+    !reasoningText &&
+    !isStreaming &&
+    !shouldShowHiddenReasoning &&
+    !shouldShowNoReasoningTokens;
+  const reasoningContent = reasoningText
+    || (shouldShowHiddenReasoning
+      ? "Reasoning was used for this response, but the provider returned it in a hidden/encrypted format."
+      : shouldShowNoReasoningTokens
+        ? "Reasoning was enabled, but this response used 0 reasoning tokens."
+      : shouldShowUnavailableReasoning
+        ? "Reasoning was requested, but this provider did not return visible reasoning text for this response."
+        : "Thinking...");
 
-  // Auto-collapse ONLY when:
-  // 1. Streaming transitions from true -> false (message is complete)
-  // 2. There is text content (the actual response)
-  // 3. We haven't already auto-collapsed this message
-  useEffect(() => {
-    if (isStreaming) {
-      // Currently streaming - keep open and reset flags
-      setIsOpen(true);
-      wasStreamingRef.current = true;
-      hasAutoCollapsedRef.current = false;
-    } else if (
-      wasStreamingRef.current &&
-      hasTextContent &&
-      !hasAutoCollapsedRef.current
+  if (!hasToolSteps) {
+    if (
+      !reasoningText &&
+      !isStreaming &&
+      !shouldShowUnavailableReasoning &&
+      !shouldShowHiddenReasoning &&
+      !shouldShowNoReasoningTokens
     ) {
-      // Streaming just finished AND we have text content - auto-collapse after a delay
-      hasAutoCollapsedRef.current = true;
-      const timer = setTimeout(() => {
-        setIsOpen(false);
-      }, 500); // Small delay for UX
-      return () => clearTimeout(timer);
+      return null;
     }
-  }, [isStreaming, hasTextContent]);
 
-  const completedSteps = steps.filter((s) => s.status === "complete").length;
-  const errorSteps = steps.filter((s) => s.status === "error").length;
-  const hasActiveStep = steps.some((s) => s.status === "active");
-
-  return (
-    <details
-      className="group overflow-hidden rounded-xl border border-border/50 bg-muted/30 mb-3"
-      open={isOpen}
-      onToggle={(e) => setIsOpen((e.target as HTMLDetailsElement).open)}
-    >
-      <summary className="flex cursor-pointer items-center gap-2 px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted/50 transition-colors list-none [&::-webkit-details-marker]:hidden">
-        <div className="flex items-center gap-2 flex-1">
-          {/* Status indicator */}
-          <div
-            className={cn(
-              "w-2 h-2 rounded-full",
-              hasActiveStep
-                ? "bg-primary animate-pulse"
-                : errorSteps > 0
-                  ? "bg-destructive"
-                  : "bg-success",
-            )}
-          />
-          <span className="font-medium">Thinking</span>
-          <span className="text-xs opacity-60">
-            {completedSteps}/{steps.length} steps
-          </span>
-        </div>
-        <ChevronDownIcon className="w-4 h-4 transition-transform duration-200 group-open:rotate-180" />
-      </summary>
-
-      <div className="border-t border-border/30">
-        <div className="divide-y divide-border/30">
-          {steps.map((step) => (
-            <ChainOfThoughtStepItem key={step.id} step={step} />
-          ))}
-        </div>
-      </div>
-    </details>
-  );
-}
-
-function SmoothReasoningContent({ content, isActive }: { content: string; isActive: boolean }) {
-  const smoothContent = useSmoothText(content, isActive);
-  return <Streamdown>{smoothContent}</Streamdown>;
-}
-
-function ChainOfThoughtStepItem({ step }: { step: ChainOfThoughtStep }) {
-  // Tool steps with output start expanded, reasoning steps follow streaming state
-  const [isExpanded, setIsExpanded] = useState(
-    step.type === "tool" ? step.toolState === "output-available" : step.status === "active",
-  );
-  const prevStatusRef = useRef(step.status);
-
-  // Auto-expand when step becomes active
-  // Auto-collapse reasoning steps when complete, but keep tool results expanded
-  useEffect(() => {
-    const prevStatus = prevStatusRef.current;
-    prevStatusRef.current = step.status;
-
-    if (step.status === "active") {
-      // Step became active - expand it
-      setIsExpanded(true);
-    } else if (prevStatus === "active" && step.status === "complete") {
-      // Step just finished - only auto-collapse REASONING steps, not tool results
-      if (step.type === "reasoning") {
-        const timer = setTimeout(() => {
-          setIsExpanded(false);
-        }, 300);
-        return () => clearTimeout(timer);
-      }
-      // Tool steps stay expanded when they complete (so user can see results)
-    }
-  }, [step.status, step.type]);
-
-  // Get icon based on step type
-  const getStepIcon = () => {
-    if (step.type === "tool") {
-      if (step.toolName === "webSearch") {
-        return <SearchIcon className="size-3" />;
-      }
-      return <GlobeIcon className="size-3" />;
-    }
-    return <BrainIcon className="size-3" />;
-  };
-
-  // Get step label
-  const getStepLabel = () => {
-    if (step.type === "tool") {
-      const input = step.toolInput as Record<string, unknown> | undefined;
-      const query = input?.query as string | undefined;
-      if (step.toolState === "output-available") {
-        return `Search: ${query || step.toolName}`;
-      }
-      if (step.toolState === "output-error") {
-        return `Search failed: ${query || step.toolName}`;
-      }
-      return `Searching: ${query || step.toolName}...`;
-    }
-    return step.label;
-  };
-
-  return (
-    <div className="px-4 py-3">
-      {/* Step header - clickable to expand/collapse */}
-      <button
-        type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-3 w-full text-left"
+    return (
+      <Reasoning
+        isStreaming={isStreaming}
+        open={open}
+        defaultOpen={isStreaming}
+        onOpenChange={onOpenChange}
+        duration={thinkingTimeSec}
       >
-        {/* Step number/icon indicator */}
-        <div
-          className={cn(
-            "flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs",
-            step.status === "complete" && "bg-success/20 text-success",
-            step.status === "active" && "bg-primary/20 text-primary animate-pulse",
-            step.status === "pending" && "bg-muted text-muted-foreground",
-          )}
-        >
-          {getStepIcon()}
-        </div>
+        <ReasoningTrigger
+          getThinkingMessage={(streaming, duration) => {
+            if (shouldShowUnavailableReasoning) {
+              return <p>Reasoning unavailable</p>;
+            }
+            if (shouldShowHiddenReasoning) {
+              return <p>Reasoning hidden</p>;
+            }
+            if (shouldShowNoReasoningTokens) {
+              return <p>No reasoning used</p>;
+            }
+            if (streaming) {
+              return <p>Thinking...</p>;
+            }
+            if (duration === undefined || duration === 0) {
+              return <p>Thought process</p>;
+            }
+            return <p>Thought for {duration} seconds</p>;
+          }}
+        />
+        <ReasoningContent>{reasoningContent}</ReasoningContent>
+      </Reasoning>
+    );
+  }
 
-        {/* Step label */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                "text-sm font-medium truncate",
-                step.status === "active" ? "text-foreground" : "text-muted-foreground",
-              )}
+  const getToolLabel = (step: ChainOfThoughtStep) => {
+    const input = step.toolInput as Record<string, unknown> | undefined;
+    const query = input?.query as string | undefined;
+    if (step.toolState === "output-available") {
+      return `Search: ${query || step.toolName || "tool"}`;
+    }
+    if (step.toolState === "output-error") {
+      return `Search failed: ${query || step.toolName || "tool"}`;
+    }
+    return `Searching: ${query || step.toolName || "tool"}...`;
+  };
+
+  return (
+    <AiChainOfThought
+      open={open}
+      defaultOpen={isStreaming}
+      onOpenChange={onOpenChange}
+      className="mb-3 max-w-none"
+    >
+      <AiChainOfThoughtHeader>
+        {isStreaming ? "Thinking..." : `Thought through ${steps.length} steps`}
+      </AiChainOfThoughtHeader>
+      <AiChainOfThoughtContent>
+        {steps.map((step) => {
+          const mappedStatus =
+            step.status === "active" ? "active" : step.status === "pending" ? "pending" : "complete";
+          const label = step.type === "tool" ? getToolLabel(step) : "Thought process";
+          return (
+            <AiChainOfThoughtStep
+              key={step.id}
+              icon={step.type === "tool" ? SearchIcon : BrainIcon}
+              label={label}
+              status={mappedStatus}
+              className={cn(step.status === "error" && "text-destructive")}
             >
-              {getStepLabel()}
-            </span>
-            {step.status === "active" && (
-              <Loader2Icon className="size-3 animate-spin text-primary" />
-            )}
-          </div>
-        </div>
-
-        {/* Expand indicator - show for reasoning with content OR tool with output */}
-        {Boolean(step.content || (step.type === "tool" && step.toolOutput)) && (
-          <ChevronDownIcon
-            className={cn(
-              "size-4 text-muted-foreground transition-transform",
-              isExpanded && "rotate-180",
-            )}
-          />
-        )}
-      </button>
-
-      {isExpanded && step.type === "reasoning" && step.content && (
-        <div className="mt-2 ml-9">
-          <div
-            className={cn(
-              "prose prose-sm dark:prose-invert max-w-none",
-              "prose-p:text-xs prose-p:leading-relaxed prose-p:text-muted-foreground prose-p:my-1",
-              "prose-strong:text-foreground/80 prose-strong:font-semibold",
-              "prose-em:text-muted-foreground",
-              "prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:rounded",
-              "prose-ul:my-1 prose-ol:my-1 prose-li:text-xs prose-li:text-muted-foreground",
-              "max-h-[200px] overflow-y-auto",
-            )}
-          >
-            <SmoothReasoningContent content={step.content} isActive={step.status === "active"} />
-          </div>
-        </div>
-      )}
-
-      {/* Tool output display */}
-      {step.type === "tool" && step.toolState === "output-available" && !!step.toolOutput && (
-        <div className="mt-2 ml-9">
-          <SearchResultsDisplay results={step.toolOutput} isExpanded={isExpanded} />
-        </div>
-      )}
-
-      {/* Tool error display */}
-      {step.type === "tool" && step.toolState === "output-error" && step.errorText && (
-        <div className="mt-2 ml-9 text-xs text-destructive">Error: {step.errorText}</div>
-      )}
-    </div>
+              {step.type === "reasoning" && step.content && (
+                <div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground">
+                  <Streamdown>{step.content}</Streamdown>
+                </div>
+              )}
+              {step.type === "tool" && step.toolState === "output-available" && !!step.toolOutput && (
+                <SearchResultsDisplay results={step.toolOutput} isExpanded />
+              )}
+              {step.type === "tool" && step.toolState === "output-error" && step.errorText && (
+                <p className="text-xs text-destructive">{step.errorText}</p>
+              )}
+            </AiChainOfThoughtStep>
+          );
+        })}
+      </AiChainOfThoughtContent>
+    </AiChainOfThought>
   );
 }
 
@@ -656,371 +589,8 @@ function SearchResultsDisplay({ results, isExpanded }: { results: unknown; isExp
   );
 }
 
-// Reasoning Slider Component - Continuous slider with labels
-interface ReasoningSliderProps {
-  value: ReasoningEffort;
-  onChange: (value: ReasoningEffort) => void;
+interface ToolbarToggleProps {
   disabled?: boolean;
-}
-
-const EFFORT_OPTIONS: Array<ReasoningEffort> = ["none", "low", "medium", "high"];
-const EFFORT_LABELS: Record<ReasoningEffort, string> = {
-  none: "None",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-};
-
-function ReasoningSlider({ value, onChange, disabled }: ReasoningSliderProps) {
-  const currentIndex = EFFORT_OPTIONS.indexOf(value);
-  const percentage = (currentIndex / (EFFORT_OPTIONS.length - 1)) * 100;
-
-  const handleClick = (index: number) => {
-    if (disabled) return;
-    onChange(EFFORT_OPTIONS[index]);
-  };
-
-  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const clickPercentage = x / rect.width;
-    const index = Math.round(clickPercentage * (EFFORT_OPTIONS.length - 1));
-    onChange(EFFORT_OPTIONS[Math.max(0, Math.min(index, EFFORT_OPTIONS.length - 1))]);
-  };
-
-  return (
-    <div className={cn("space-y-2", disabled && "opacity-40 pointer-events-none")}>
-      {/* Slider Track */}
-      <div className="relative h-2 cursor-pointer" onClick={handleTrackClick}>
-        {/* Background track */}
-        <div className="absolute inset-0 bg-muted rounded-full" />
-
-        {/* Filled track */}
-        <div
-          className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-150"
-          style={{ width: `${percentage}%` }}
-        />
-
-        {/* Thumb/handle */}
-        <div
-          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-primary rounded-full shadow-md border-2 border-background transition-all duration-150"
-          style={{ left: `calc(${percentage}% - 8px)` }}
-        />
-
-        {/* Click targets at each position */}
-        <div className="absolute inset-0 flex justify-between">
-          {EFFORT_OPTIONS.map((_, index) => (
-            <button
-              key={index}
-              type="button"
-              className="w-4 h-full z-10"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleClick(index);
-              }}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Labels */}
-      <div className="flex justify-between text-xs text-muted-foreground">
-        {EFFORT_OPTIONS.map((effort, index) => (
-          <button
-            key={effort}
-            type="button"
-            onClick={() => handleClick(index)}
-            className={cn(
-              "transition-colors hover:text-foreground",
-              value === effort && "text-foreground font-medium",
-            )}
-          >
-            {EFFORT_LABELS[effort]}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-interface ModelConfigPopoverProps {
-  disabled?: boolean;
-}
-
-function ModelConfigPopover({ disabled }: ModelConfigPopoverProps) {
-  const { selectedModelId, reasoningEffort, setReasoningEffort, maxSteps, setMaxSteps } =
-    useModelStore();
-  const {
-    enabled: webSearchEnabled,
-    toggle: toggleWebSearch,
-    remainingSearches,
-    isLimitReached,
-  } = useWebSearch();
-  const [open, setOpen] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
-  const isMobile = useIsMobile();
-
-  const { models } = useModels();
-  const currentModel = getModelById(models, selectedModelId);
-  const capabilities = getModelCapabilities(selectedModelId, currentModel);
-
-  const getBadgeText = () => {
-    const parts: Array<string> = [];
-    if (reasoningEffort !== "none" && capabilities.supportsReasoning) {
-      parts.push(reasoningEffort.toUpperCase());
-    }
-    if (webSearchEnabled) {
-      parts.push("Search");
-    }
-    return parts.length > 0 ? parts.join(" + ") : null;
-  };
-
-  const badgeText = getBadgeText();
-
-  const handleReasoningChange = (effort: ReasoningEffort) => {
-    setReasoningEffort(effort);
-  };
-
-  const handleSearchToggle = () => {
-    if (isLimitReached && !webSearchEnabled) {
-      toast.error("Search limit reached", {
-        description: "You've used your 20 daily web searches. Limit resets tomorrow.",
-      });
-      return;
-    }
-    toggleWebSearch();
-  };
-
-  const handleClose = useCallback(() => {
-    setIsClosing(true);
-    setTimeout(() => {
-      setOpen(false);
-      setIsClosing(false);
-    }, 150);
-  }, []);
-
-  const handleOpen = useCallback(() => {
-    if (disabled) return;
-    setOpen(true);
-    setIsClosing(false);
-  }, [disabled]);
-
-  const configContent = (
-    <>
-      <div className={cn("pb-4", isMobile ? "border-b border-border/50" : "")}>
-        <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
-          <BrainIcon className="size-4" />
-          <span className="font-medium">Reasoning effort</span>
-        </div>
-        <div className="py-2">
-          <ReasoningSlider
-            value={capabilities.supportsReasoning ? reasoningEffort : "none"}
-            onChange={handleReasoningChange}
-            disabled={!capabilities.supportsReasoning}
-          />
-        </div>
-        {!capabilities.supportsReasoning && (
-          <p className="text-xs text-muted-foreground/60 mt-1">
-            This model doesn't support reasoning
-          </p>
-        )}
-      </div>
-
-      <div className={cn(
-        "pt-4",
-        webSearchEnabled && !isMobile ? "pb-4" : "",
-        webSearchEnabled && isMobile ? "pb-4 border-b border-border/50" : ""
-      )}>
-        <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
-          <GlobeIcon className="size-4" />
-          <span className="font-medium">Web search</span>
-          <span className="ml-auto">{remainingSearches} left</span>
-        </div>
-        <div className="py-2">
-          <button
-            type="button"
-            onClick={handleSearchToggle}
-            disabled={isLimitReached && !webSearchEnabled}
-            className={cn(
-              "w-full flex items-center justify-between rounded-lg transition-all",
-              isMobile ? "py-3 px-4 min-h-[52px]" : "py-2 px-3",
-              webSearchEnabled
-                ? "bg-primary/10 border border-primary/30"
-                : "bg-muted/50 border border-transparent hover:bg-muted",
-              isLimitReached && !webSearchEnabled && "opacity-50 cursor-not-allowed",
-            )}
-          >
-            <span className={cn(isMobile ? "text-base" : "text-sm")}>
-              {webSearchEnabled ? "Enabled" : "Disabled"}
-            </span>
-            <div
-              className={cn(
-                "rounded-full transition-all relative",
-                isMobile ? "w-12 h-7" : "w-10 h-6",
-                webSearchEnabled ? "bg-primary" : "bg-muted-foreground/30",
-              )}
-            >
-              <div
-                className={cn(
-                  "absolute rounded-full bg-white transition-all shadow-sm",
-                  isMobile ? "top-1 w-5 h-5" : "top-1 w-4 h-4",
-                  webSearchEnabled ? (isMobile ? "left-6" : "left-5") : "left-1",
-                )}
-              />
-            </div>
-          </button>
-          <p className={cn("text-muted-foreground mt-2", isMobile ? "text-sm" : "text-xs")}>
-            Allow the AI to search the web for current information
-          </p>
-        </div>
-      </div>
-
-      {webSearchEnabled && (
-        <div className={cn(isMobile ? "pt-4" : "pt-4 border-t border-border/50")}>
-          <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
-            <LinkIcon className="size-4" />
-            <span className="font-medium">Max iterations</span>
-          </div>
-          <div className="py-2">
-            <div className="flex items-center justify-between">
-              <span className={cn("text-muted-foreground", isMobile ? "text-sm" : "text-xs")}>
-                Search/tool steps
-              </span>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setMaxSteps(maxSteps - 1)}
-                  disabled={maxSteps <= 1}
-                  className={cn(
-                    "rounded flex items-center justify-center",
-                    "bg-muted hover:bg-muted/80 active:bg-muted/60 transition-colors",
-                    "disabled:opacity-50 disabled:cursor-not-allowed",
-                    isMobile ? "w-10 h-10" : "w-6 h-6",
-                  )}
-                >
-                  <MinusIcon className={cn(isMobile ? "size-5" : "size-3")} />
-                </button>
-                <span className={cn(
-                  "text-center font-medium tabular-nums",
-                  isMobile ? "w-8 text-lg" : "w-6 text-sm"
-                )}>
-                  {maxSteps}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setMaxSteps(maxSteps + 1)}
-                  disabled={maxSteps >= 10}
-                  className={cn(
-                    "rounded flex items-center justify-center",
-                    "bg-muted hover:bg-muted/80 active:bg-muted/60 transition-colors",
-                    "disabled:opacity-50 disabled:cursor-not-allowed",
-                    isMobile ? "w-10 h-10" : "w-6 h-6",
-                  )}
-                >
-                  <PlusIcon className={cn(isMobile ? "size-5" : "size-3")} />
-                </button>
-              </div>
-            </div>
-            <p className={cn("text-muted-foreground mt-2", isMobile ? "text-sm" : "text-xs")}>
-              Maximum search/tool iterations per response
-            </p>
-          </div>
-        </div>
-      )}
-    </>
-  );
-
-  const triggerButton = (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => (isMobile ? handleOpen() : undefined)}
-      className={cn(
-        "flex items-center justify-center gap-1.5",
-        "size-10 md:size-auto md:h-8 md:px-3 rounded-full",
-        "text-sm",
-        "border transition-all duration-150",
-        badgeText
-          ? "bg-primary/10 text-primary border-primary/50 hover:bg-primary/20"
-          : "text-muted-foreground bg-muted/50 hover:bg-muted hover:text-foreground border-border/50",
-        "disabled:opacity-50 disabled:cursor-not-allowed",
-      )}
-    >
-      <SlidersHorizontalIcon className="size-4" />
-      {badgeText && <span className="hidden md:inline text-xs font-medium">{badgeText}</span>}
-    </button>
-  );
-
-  if (isMobile) {
-    return (
-      <>
-        {triggerButton}
-        {open && createPortal(
-          <>
-            <div
-              className={cn(
-                "fixed inset-0 z-[9998] bg-black/60 backdrop-blur-sm",
-                isClosing
-                  ? "animate-out fade-out-0 duration-150"
-                  : "animate-in fade-in-0 duration-200",
-              )}
-              onClick={handleClose}
-            />
-            <div
-              className={cn(
-                "fixed inset-x-0 bottom-0 z-[9999] flex flex-col overflow-hidden rounded-t-2xl border-t border-border bg-popover text-popover-foreground shadow-2xl",
-                isClosing
-                  ? "animate-out slide-out-to-bottom fade-out-0 duration-200"
-                  : "animate-in slide-in-from-bottom fade-in-0 duration-300",
-              )}
-            >
-              <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
-                <h2 className="text-base font-semibold text-foreground">Model Settings</h2>
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-accent active:text-foreground"
-                  aria-label="Close"
-                >
-                  <XIcon className="size-5" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto overscroll-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-                {configContent}
-              </div>
-            </div>
-          </>,
-          document.body
-        )}
-      </>
-    );
-  }
-
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger
-        disabled={disabled}
-        className={cn(
-          "flex items-center justify-center gap-1.5",
-          "size-10 md:size-auto md:h-8 md:px-3 rounded-full",
-          "text-sm",
-          "border transition-all duration-150",
-          badgeText
-            ? "bg-primary/10 text-primary border-primary/50 hover:bg-primary/20"
-            : "text-muted-foreground bg-muted/50 hover:bg-muted hover:text-foreground border-border/50",
-          "disabled:opacity-50 disabled:cursor-not-allowed",
-        )}
-      >
-        <SlidersHorizontalIcon className="size-4" />
-        {badgeText && <span className="hidden md:inline text-xs font-medium">{badgeText}</span>}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72 p-3">
-        {configContent}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
 }
 
 // Pill Button Component for Search/Attach
@@ -1028,33 +598,118 @@ interface PillButtonProps {
   icon: React.ReactNode;
   label: string;
   onClick?: () => void;
+  disabled?: boolean;
   active?: boolean;
   className?: string;
   hideLabel?: boolean;
 }
 
-function PillButton({ icon, label, onClick, active, className, hideLabel }: PillButtonProps) {
+function PillButton({ icon, label, onClick, disabled, active, className, hideLabel }: PillButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       className={cn(
         "flex items-center justify-center gap-1.5",
         // Mobile: icon-only with 44px touch target, Desktop: with label
-        hideLabel ? "size-10 md:size-auto md:h-8 md:px-3" : "h-8 px-3",
+        hideLabel ? "size-10 md:size-auto md:h-8 md:px-3" : "h-10 md:h-8 px-3",
         "rounded-full",
         "text-sm",
         "border transition-all duration-150",
         active
           ? "bg-primary/10 text-primary border-primary/50 hover:bg-primary/20"
           : "text-muted-foreground bg-muted/50 hover:bg-muted hover:text-foreground border-border/50",
+        "disabled:opacity-50 disabled:cursor-not-allowed",
         className,
       )}
     >
       {icon}
       {!hideLabel && <span className="hidden md:inline">{label}</span>}
     </button>
+  );
+}
+
+function ReasoningToggleButton({ disabled }: ToolbarToggleProps) {
+  const { selectedModelId, reasoningEnabled, setReasoningEnabled } = useModelStore();
+  const { models } = useModels();
+  const currentModel = getModelById(models, selectedModelId);
+  const capabilities = getModelCapabilities(selectedModelId, currentModel);
+  const supportsReasoning = capabilities.supportsReasoning;
+
+  useEffect(() => {
+    if (!supportsReasoning && reasoningEnabled) {
+      setReasoningEnabled(false);
+    }
+  }, [supportsReasoning, reasoningEnabled, setReasoningEnabled]);
+
+  if (!supportsReasoning) return null;
+
+  return (
+    <PillButton
+      icon={<BrainIcon className="size-4" />}
+      label="Reasoning"
+      active={reasoningEnabled}
+      disabled={disabled}
+      onClick={() => setReasoningEnabled(!reasoningEnabled)}
+    />
+  );
+}
+
+function WebSearchToggleButton({ disabled }: ToolbarToggleProps) {
+  const {
+    enabled: webSearchEnabled,
+    toggle: toggleWebSearch,
+    setEnabled: setWebSearchEnabled,
+    remainingSearches: localRemainingSearches,
+    isLimitReached: localIsLimitReached,
+  } = useWebSearch();
+  const { user } = useAuth();
+  const convexUser = useQuery(
+    api.users.getByExternalId,
+    user?.id ? { externalId: user.id } : "skip",
+  );
+  const backendSearchAvailability = useQuery(
+    api.search.getSearchAvailability,
+    convexUser?._id ? { userId: convexUser._id } : "skip",
+  );
+  const isConfigured = backendSearchAvailability?.configured ?? true;
+  const remainingSearches = backendSearchAvailability?.remaining ?? localRemainingSearches;
+  const isLimitReached = backendSearchAvailability
+    ? !backendSearchAvailability.canSearch
+    : localIsLimitReached;
+
+  useEffect(() => {
+    if (!isConfigured && webSearchEnabled) {
+      setWebSearchEnabled(false);
+    }
+  }, [isConfigured, webSearchEnabled, setWebSearchEnabled]);
+
+  const handleClick = () => {
+    if (!isConfigured && !webSearchEnabled) {
+      toast.error("Web search unavailable", {
+        description: "Server search is not configured yet.",
+      });
+      return;
+    }
+    if (isLimitReached && !webSearchEnabled) {
+      toast.error("Search limit reached", {
+        description: "You've used your daily web searches. Limit resets tomorrow.",
+      });
+      return;
+    }
+    toggleWebSearch();
+  };
+
+  return (
+    <PillButton
+      icon={<GlobeIcon className="size-4" />}
+      label={webSearchEnabled ? `Search (${remainingSearches})` : "Web Search"}
+      active={webSearchEnabled}
+      disabled={disabled || (!isConfigured && !webSearchEnabled) || (isLimitReached && !webSearchEnabled)}
+      onClick={handleClick}
+    />
   );
 }
 
@@ -1182,11 +837,13 @@ function PremiumPromptInputInner({
         <PromptInputFooter className="px-2 md:px-3 pb-2 md:pb-3 pt-1 gap-1.5 md:gap-2">
           <PromptInputTools className="gap-1.5 md:gap-2 flex-1 min-w-0">
             <ConnectedModelSelector disabled={isLoading} />
-            <ModelConfigPopover disabled={isLoading} />
+            <ReasoningToggleButton disabled={isLoading} />
+            <WebSearchToggleButton disabled={isLoading} />
             <PillButton
               icon={<PaperclipIcon className="size-4" />}
               label="Attach"
               onClick={handleAttachClick}
+              disabled={isLoading}
               hideLabel
             />
           </PromptInputTools>
@@ -1266,6 +923,7 @@ interface ChatMessageListProps {
     id: string;
     role: string;
     parts?: Array<UIMessagePart<UIDataTypes, UITools>>;
+    metadata?: unknown;
   }>;
   isLoading: boolean;
   isNewChat: boolean;
@@ -1278,9 +936,11 @@ const ChatMessageList = memo(function ChatMessageList({
   isNewChat,
   onPromptSelect,
 }: ChatMessageListProps) {
+  const [openByMessageId, setOpenByMessageId] = useState<Record<string, boolean>>({});
+  const prevThinkingStreamingByMessageIdRef = useRef<Record<string, boolean>>({});
+
   const processedMessages = useMemo(() => {
     if (messages.length === 0) return [];
-    const streamingId = isLoading ? messages[messages.length - 1]?.id : null;
 
     return messages.map((message) => {
       const msg = message as typeof message & {
@@ -1296,24 +956,57 @@ const ChatMessageList = memo(function ChatMessageList({
 
       const allParts = message.parts || [];
       const textParts = allParts.filter((p): p is { type: "text"; text: string } => p.type === "text");
-      const fileParts = allParts.filter((p): p is { type: "file"; filename?: string; url?: string; mediaType?: string } => p.type === "file");
+      const fileParts = allParts.filter(
+        (p): p is Extract<UIMessagePart<UIDataTypes, UITools>, { type: "file" }> =>
+          p.type === "file",
+      );
+
+      const textContent = textParts.map((p) => p.text).join("").trim();
+      const hasReasoning = allParts.some((p) => p.type === "reasoning");
+      const hasToolParts = allParts.some(
+        (p) => typeof p.type === "string" && p.type.startsWith("tool-"),
+      );
+      const hasFiles = fileParts.length > 0;
+      const isCurrentlyStreaming = allParts.some((part) => {
+        if ("state" in part && part.state === "streaming") {
+          return true;
+        }
+        if (typeof part.type === "string" && part.type.startsWith("tool-")) {
+          const toolState = (part as { state?: unknown }).state;
+          return toolState === "input-streaming";
+        }
+        return false;
+      });
+      const metadata = message.metadata as {
+        thinkingTimeSec?: unknown;
+        reasoningRequested?: unknown;
+        reasoningTokenCount?: unknown;
+        resumedFromActiveStream?: unknown;
+      } | undefined;
+      const thinkingTimeSec =
+        typeof metadata?.thinkingTimeSec === "number"
+          ? metadata.thinkingTimeSec
+          : undefined;
+      const reasoningRequested = metadata?.reasoningRequested === true;
+      const reasoningTokenCount =
+        typeof metadata?.reasoningTokenCount === "number"
+          ? metadata.reasoningTokenCount
+          : undefined;
+      const resumedFromActiveStream = metadata?.resumedFromActiveStream === true;
 
       const {
         steps: thinkingSteps,
         isAnyStreaming: isAnyStepStreaming,
         hasTextContent,
-      } = buildChainOfThoughtSteps(allParts);
-
-      const textContent = textParts.map((p) => p.text).join("").trim();
-      const hasReasoning = allParts.some((p) => p.type === "reasoning");
-      const hasFiles = fileParts.length > 0;
-      const isCurrentlyStreaming = streamingId === message.id;
+      } = buildChainOfThoughtSteps(allParts, reasoningRequested);
 
       const shouldSkip =
         msg.messageType !== "error" &&
         message.role === "assistant" &&
         !textContent &&
         !hasReasoning &&
+        !reasoningRequested &&
+        !hasToolParts &&
         !hasFiles &&
         !isCurrentlyStreaming;
 
@@ -1325,11 +1018,55 @@ const ChatMessageList = memo(function ChatMessageList({
         thinkingSteps,
         isAnyStepStreaming,
         hasTextContent,
+        thinkingTimeSec,
+        reasoningRequested,
+        reasoningTokenCount,
+        resumedFromActiveStream,
         isCurrentlyStreaming,
         shouldSkip,
       };
     });
-  }, [messages, isLoading]);
+  }, [messages]);
+
+  useEffect(() => {
+    const prevThinkingStreamingByMessageId = prevThinkingStreamingByMessageIdRef.current;
+    setOpenByMessageId((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const item of processedMessages) {
+        const hasStartedAnswerText = item.textParts.some((part) => part.text.trim().length > 0);
+
+        if (item.isAnyStepStreaming && !hasStartedAnswerText && next[item.message.id] !== true) {
+          next[item.message.id] = true;
+          changed = true;
+        }
+
+        const wasThinkingStreaming = prevThinkingStreamingByMessageId[item.message.id] === true;
+        if (
+          wasThinkingStreaming &&
+          hasStartedAnswerText &&
+          next[item.message.id] !== false
+        ) {
+          next[item.message.id] = false;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
+    const nextThinkingStreamingByMessageId: Record<string, boolean> = {};
+    for (const item of processedMessages) {
+      nextThinkingStreamingByMessageId[item.message.id] = item.isAnyStepStreaming;
+    }
+    prevThinkingStreamingByMessageIdRef.current = nextThinkingStreamingByMessageId;
+  }, [processedMessages]);
+
+  const setPanelOpen = useCallback((messageId: string, open: boolean) => {
+    setOpenByMessageId((prev) => {
+      if (prev[messageId] === open) return prev;
+      return { ...prev, [messageId]: open };
+    });
+  }, []);
 
   return (
     <Conversation className="flex-1 px-2 md:px-4" showScrollButton>
@@ -1364,6 +1101,11 @@ const ChatMessageList = memo(function ChatMessageList({
                           steps={item.thinkingSteps}
                           isStreaming={item.isAnyStepStreaming}
                           hasTextContent={item.hasTextContent || item.textParts.length > 0}
+                          thinkingTimeSec={item.thinkingTimeSec}
+                          reasoningRequested={item.reasoningRequested}
+                          reasoningTokenCount={item.reasoningTokenCount}
+                          open={openByMessageId[item.message.id] ?? item.isAnyStepStreaming}
+                          onOpenChange={(open) => setPanelOpen(item.message.id, open)}
                         />
                       )}
 
@@ -1371,6 +1113,7 @@ const ChatMessageList = memo(function ChatMessageList({
                         <MessageResponse
                           key={`text-${partIndex}`}
                           isStreaming={item.isCurrentlyStreaming && partIndex === item.textParts.length - 1}
+                          skipInitialAnimation={item.resumedFromActiveStream}
                         >
                           {part.text || ""}
                         </MessageResponse>
@@ -1407,6 +1150,7 @@ interface ChatInterfaceContentProps {
     id: string;
     role: string;
     parts?: Array<UIMessagePart<UIDataTypes, UITools>>;
+    metadata?: unknown;
   }>;
   isLoading: boolean;
   isNewChat: boolean;

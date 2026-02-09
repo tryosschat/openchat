@@ -22,6 +22,7 @@
     "@convex-dev/better-auth": "^0.10.10",
     "@fontsource-variable/nunito-sans": "^5.2.7",
     "@openrouter/ai-sdk-provider": "2.1.1",
+    "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.90.20",
@@ -63,7 +64,6 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
-
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.2.1",

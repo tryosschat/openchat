@@ -9,6 +9,7 @@ export type UsagePayload = {
 	completionTokens?: number;
 	totalTokens?: number;
 	totalCostUsd?: number;
+	reasoningTokens?: number;
 };
 
 export function getCurrentDateKey(): string {
@@ -43,7 +44,21 @@ export function normalizeUsagePayload(usage: Record<string, unknown>): UsagePayl
 					? usage.cost
 					: undefined;
 
-	return { promptTokens, completionTokens, totalTokens, totalCostUsd };
+	const outputTokensDetails =
+		typeof usage.output_tokens_details === "object" && usage.output_tokens_details !== null
+			? usage.output_tokens_details as Record<string, unknown>
+			: typeof usage.outputTokensDetails === "object" && usage.outputTokensDetails !== null
+				? usage.outputTokensDetails as Record<string, unknown>
+				: undefined;
+
+	const reasoningTokens =
+		typeof outputTokensDetails?.reasoning_tokens === "number"
+			? outputTokensDetails.reasoning_tokens
+			: typeof outputTokensDetails?.reasoningTokens === "number"
+				? outputTokensDetails.reasoningTokens
+				: undefined;
+
+	return { promptTokens, completionTokens, totalTokens, totalCostUsd, reasoningTokens };
 }
 
 export function estimateTokensFromText(text: string): number {

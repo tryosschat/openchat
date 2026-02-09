@@ -1,12 +1,5 @@
 'use client'
 
-import type { ComponentProps, HTMLAttributes } from 'react'
-import type {
-  BundledLanguage,
-  BundledTheme,
-  HighlighterGeneric,
-  ThemedToken,
-} from 'shiki'
 import { bundledLanguages, createHighlighter } from 'shiki'
 import { CheckIcon, CopyIcon } from 'lucide-react'
 import {
@@ -19,6 +12,13 @@ import {
   useRef,
   useState,
 } from 'react'
+import type { ComponentProps, HTMLAttributes } from 'react'
+import type {
+  BundledLanguage,
+  BundledTheme,
+  HighlighterGeneric,
+  ThemedToken,
+} from 'shiki'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -33,7 +33,7 @@ interface CodeBlockContextType {
 }
 
 interface TokenizedCode {
-  tokens: ThemedToken[][]
+  tokens: Array<Array<ThemedToken>>
 }
 
 const CodeBlockContext = createContext<CodeBlockContextType>({
@@ -339,7 +339,10 @@ export const CodeBlockCopyButton = ({
   const { code } = useContext(CodeBlockContext)
 
   const copyToClipboard = useCallback(async () => {
-    if (typeof window === 'undefined' || !navigator?.clipboard?.writeText) {
+    if (
+      !('clipboard' in navigator) ||
+      typeof navigator.clipboard.writeText !== 'function'
+    ) {
       onError?.(new Error('Clipboard API not available'))
       return
     }

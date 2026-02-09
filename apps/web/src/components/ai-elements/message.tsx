@@ -9,10 +9,6 @@
 
 import { createContext, isValidElement, memo, useContext } from 'react'
 import { Streamdown } from 'streamdown'
-import type { ComponentProps, ReactNode } from 'react'
-import type { StreamdownProps } from 'streamdown'
-import { cn } from '@/lib/utils'
-import { useSmoothText } from '@/hooks/use-smooth-text'
 import {
   CodeBlock,
   CodeBlockActions,
@@ -21,6 +17,10 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from './code-block'
+import type { ComponentProps, ReactNode } from 'react'
+import type { StreamdownProps } from 'streamdown'
+import { useSmoothText } from '@/hooks/use-smooth-text'
+import { cn } from '@/lib/utils'
 
 // ============================================================================
 // Context
@@ -194,17 +194,21 @@ const streamdownComponents: StreamdownProps['components'] = {
 export interface MessageResponseProps extends ComponentProps<'div'> {
   children: string
   isStreaming?: boolean
+  skipInitialAnimation?: boolean
 }
 
 export const MessageResponse = ({
   children,
   className,
   isStreaming,
+  skipInitialAnimation,
   ...props
 }: MessageResponseProps) => {
   const { from } = useMessage()
   const isUser = from === 'user'
-  const smoothText = useSmoothText(children || '', !!isStreaming)
+  const smoothText = useSmoothText(children || '', !!isStreaming, {
+    skipInitialAnimation,
+  })
 
   if (isUser) {
     return (

@@ -55,9 +55,21 @@ const messageDoc = v.object({
 	clientMessageId: v.optional(v.string()),
 	role: v.string(),
 	content: v.string(),
+	modelId: v.optional(v.string()),
+	provider: v.optional(v.string()),
+	reasoningEffort: v.optional(v.string()),
+	webSearchEnabled: v.optional(v.boolean()),
+	webSearchUsed: v.optional(v.boolean()),
+	webSearchCallCount: v.optional(v.number()),
+	toolCallCount: v.optional(v.number()),
+	maxSteps: v.optional(v.number()),
 	// DEPRECATED: Use chainOfThoughtParts instead
 	reasoning: v.optional(v.string()),
 	thinkingTimeMs: v.optional(v.number()),
+	thinkingTimeSec: v.optional(v.number()),
+	reasoningCharCount: v.optional(v.number()),
+	reasoningChunkCount: v.optional(v.number()),
+	reasoningTokenCount: v.optional(v.number()),
 	// REASONING REDACTED: Whether reasoning was requested for this message
 	// Used to show "redacted" state when provider doesn't return reasoning data
 	reasoningRequested: v.optional(v.boolean()),
@@ -169,9 +181,21 @@ export const list = query({
 			clientMessageId: msg.clientMessageId,
 			role: msg.role,
 			content: msg.content,
+			modelId: msg.modelId,
+			provider: msg.provider,
+			reasoningEffort: msg.reasoningEffort,
+			webSearchEnabled: msg.webSearchEnabled,
+			webSearchUsed: msg.webSearchUsed,
+			webSearchCallCount: msg.webSearchCallCount,
+			toolCallCount: msg.toolCallCount,
+			maxSteps: msg.maxSteps,
 			// DEPRECATED: Include for backward compatibility with old messages
 			reasoning: msg.reasoning,
 			thinkingTimeMs: msg.thinkingTimeMs,
+			thinkingTimeSec: msg.thinkingTimeSec,
+			reasoningCharCount: msg.reasoningCharCount,
+			reasoningChunkCount: msg.reasoningChunkCount,
+			reasoningTokenCount: msg.reasoningTokenCount,
 			// REASONING REDACTED: Include to detect when reasoning was requested but not returned
 			reasoningRequested: msg.reasoningRequested,
 			// DEPRECATED: Include for backward compatibility with old messages
@@ -269,9 +293,23 @@ export const send = mutation({
 				content: v.string(),
 				createdAt: v.optional(v.number()),
 				clientMessageId: v.optional(v.string()),
+				modelId: v.optional(v.string()),
+				provider: v.optional(v.string()),
+				reasoningEffort: v.optional(v.string()),
+				webSearchEnabled: v.optional(v.boolean()),
+				webSearchUsed: v.optional(v.boolean()),
+				webSearchCallCount: v.optional(v.number()),
+				toolCallCount: v.optional(v.number()),
+				maxSteps: v.optional(v.number()),
 				// DEPRECATED: Use chainOfThoughtParts instead
 				// Reasoning content from AI SDK message parts (type: 'reasoning')
 				reasoning: v.optional(v.string()),
+				thinkingTimeMs: v.optional(v.number()),
+				thinkingTimeSec: v.optional(v.number()),
+				reasoningCharCount: v.optional(v.number()),
+				reasoningChunkCount: v.optional(v.number()),
+				reasoningTokenCount: v.optional(v.number()),
+				reasoningRequested: v.optional(v.boolean()),
 				// DEPRECATED: Use chainOfThoughtParts instead
 				// Tool invocations that occurred during message generation
 				toolInvocations: v.optional(v.array(toolInvocationValidator)),
@@ -328,7 +366,21 @@ export const send = mutation({
 				chatId: args.chatId,
 				role: "assistant",
 				content: args.assistantMessage.content,
+				modelId: args.assistantMessage.modelId,
+				provider: args.assistantMessage.provider,
+				reasoningEffort: args.assistantMessage.reasoningEffort,
+				webSearchEnabled: args.assistantMessage.webSearchEnabled,
+				webSearchUsed: args.assistantMessage.webSearchUsed,
+				webSearchCallCount: args.assistantMessage.webSearchCallCount,
+				toolCallCount: args.assistantMessage.toolCallCount,
+				maxSteps: args.assistantMessage.maxSteps,
 				reasoning: args.assistantMessage.reasoning,
+				thinkingTimeMs: args.assistantMessage.thinkingTimeMs,
+				thinkingTimeSec: args.assistantMessage.thinkingTimeSec,
+				reasoningCharCount: args.assistantMessage.reasoningCharCount,
+				reasoningChunkCount: args.assistantMessage.reasoningChunkCount,
+				reasoningTokenCount: args.assistantMessage.reasoningTokenCount,
+				reasoningRequested: args.assistantMessage.reasoningRequested,
 				toolInvocations: args.assistantMessage.toolInvocations,
 				chainOfThoughtParts: args.assistantMessage.chainOfThoughtParts,
 				createdAt: assistantCreatedAt,
@@ -361,8 +413,21 @@ export const streamUpsert = mutation({
 		clientMessageId: v.optional(v.string()),
 		role: v.string(),
 		content: v.string(),
+		modelId: v.optional(v.string()),
+		provider: v.optional(v.string()),
+		reasoningEffort: v.optional(v.string()),
+		webSearchEnabled: v.optional(v.boolean()),
+		webSearchUsed: v.optional(v.boolean()),
+		webSearchCallCount: v.optional(v.number()),
+		toolCallCount: v.optional(v.number()),
+		maxSteps: v.optional(v.number()),
 		reasoning: v.optional(v.string()),
 		thinkingTimeMs: v.optional(v.number()),
+		thinkingTimeSec: v.optional(v.number()),
+		reasoningCharCount: v.optional(v.number()),
+		reasoningChunkCount: v.optional(v.number()),
+		reasoningTokenCount: v.optional(v.number()),
+		reasoningRequested: v.optional(v.boolean()),
 		toolInvocations: v.optional(v.array(toolInvocationValidator)),
 		chainOfThoughtParts: v.optional(v.array(chainOfThoughtPartValidator)),
 		createdAt: v.optional(v.number()),
@@ -404,8 +469,21 @@ export const streamUpsert = mutation({
 			chatId: args.chatId,
 			role: args.role,
 			content: args.content,
+			modelId: args.modelId,
+			provider: args.provider,
+			reasoningEffort: args.reasoningEffort,
+			webSearchEnabled: args.webSearchEnabled,
+			webSearchUsed: args.webSearchUsed,
+			webSearchCallCount: args.webSearchCallCount,
+			toolCallCount: args.toolCallCount,
+			maxSteps: args.maxSteps,
 			reasoning: args.reasoning,
 			thinkingTimeMs: args.thinkingTimeMs,
+			thinkingTimeSec: args.thinkingTimeSec,
+			reasoningCharCount: args.reasoningCharCount,
+			reasoningChunkCount: args.reasoningChunkCount,
+			reasoningTokenCount: args.reasoningTokenCount,
+			reasoningRequested: args.reasoningRequested,
 			toolInvocations: args.toolInvocations,
 			chainOfThoughtParts: args.chainOfThoughtParts,
 			createdAt: timestamp,
@@ -487,8 +565,21 @@ async function insertOrUpdateMessage(
 		chatId: Id<"chats">;
 		role: string;
 		content: string;
+		modelId?: string | null;
+		provider?: string | null;
+		reasoningEffort?: string | null;
+		webSearchEnabled?: boolean | null;
+		webSearchUsed?: boolean | null;
+		webSearchCallCount?: number | null;
+		toolCallCount?: number | null;
+		maxSteps?: number | null;
 		reasoning?: string | null;
 		thinkingTimeMs?: number | null;
+		thinkingTimeSec?: number | null;
+		reasoningCharCount?: number | null;
+		reasoningChunkCount?: number | null;
+		reasoningTokenCount?: number | null;
+		reasoningRequested?: boolean | null;
 		toolInvocations?: ToolInvocationData[] | null;
 		// NEW: Unified chain of thought parts
 		chainOfThoughtParts?: ChainOfThoughtPartData[] | null;
@@ -555,8 +646,21 @@ async function insertOrUpdateMessage(
 			clientMessageId: args.clientMessageId ?? undefined,
 			role: validatedRole,
 			content: args.content,
+			modelId: args.modelId ?? undefined,
+			provider: args.provider ?? undefined,
+			reasoningEffort: args.reasoningEffort ?? undefined,
+			webSearchEnabled: args.webSearchEnabled ?? undefined,
+			webSearchUsed: args.webSearchUsed ?? undefined,
+			webSearchCallCount: args.webSearchCallCount ?? undefined,
+			toolCallCount: args.toolCallCount ?? undefined,
+			maxSteps: args.maxSteps ?? undefined,
 			reasoning: args.reasoning ?? undefined,
 			thinkingTimeMs: args.thinkingTimeMs ?? undefined,
+			thinkingTimeSec: args.thinkingTimeSec ?? undefined,
+			reasoningCharCount: args.reasoningCharCount ?? undefined,
+			reasoningChunkCount: args.reasoningChunkCount ?? undefined,
+			reasoningTokenCount: args.reasoningTokenCount ?? undefined,
+			reasoningRequested: args.reasoningRequested ?? undefined,
 			toolInvocations: args.toolInvocations ?? undefined,
 			chainOfThoughtParts: args.chainOfThoughtParts ?? undefined,
 			createdAt: args.createdAt,
@@ -582,8 +686,21 @@ async function insertOrUpdateMessage(
 			clientMessageId: args.clientMessageId ?? undefined,
 			role: validatedRole,
 			content: args.content,
+			modelId: args.modelId ?? undefined,
+			provider: args.provider ?? undefined,
+			reasoningEffort: args.reasoningEffort ?? undefined,
+			webSearchEnabled: args.webSearchEnabled ?? undefined,
+			webSearchUsed: args.webSearchUsed ?? undefined,
+			webSearchCallCount: args.webSearchCallCount ?? undefined,
+			toolCallCount: args.toolCallCount ?? undefined,
+			maxSteps: args.maxSteps ?? undefined,
 			reasoning: args.reasoning ?? undefined,
 			thinkingTimeMs: args.thinkingTimeMs ?? undefined,
+			thinkingTimeSec: args.thinkingTimeSec ?? undefined,
+			reasoningCharCount: args.reasoningCharCount ?? undefined,
+			reasoningChunkCount: args.reasoningChunkCount ?? undefined,
+			reasoningTokenCount: args.reasoningTokenCount ?? undefined,
+			reasoningRequested: args.reasoningRequested ?? undefined,
 			toolInvocations: args.toolInvocations ?? undefined,
 			chainOfThoughtParts: args.chainOfThoughtParts ?? undefined,
 			createdAt: args.createdAt,

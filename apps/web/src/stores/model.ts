@@ -279,9 +279,10 @@ function transformModel(raw: OpenRouterModel): Model {
   const outputPrice = parseFloat(raw.pricing?.completion || "0") * 1_000_000;
   const isFree = id.endsWith(":free") || (inputPrice === 0 && outputPrice === 0);
 
-  const supportsTools =
-    raw.supported_parameters?.includes("tools") ||
-    raw.supported_parameters?.includes("tool_choice");
+  const supportsTools = raw.supported_parameters
+    ? raw.supported_parameters.includes("tools") ||
+      raw.supported_parameters.includes("tool_choice")
+    : false;
   const supportsReasoning =
     raw.supported_parameters?.includes("reasoning") ||
     raw.supported_parameters?.includes("include_reasoning") ||
@@ -490,17 +491,20 @@ export interface ModelCapabilities {
   supportsReasoning: boolean;
   supportsEffortLevels: boolean;
   alwaysReasons: boolean;
+  supportsTools: boolean;
 }
 
 export function getModelCapabilities(modelId: string, model?: Model | null): ModelCapabilities {
   const supportsReasoning = model?.reasoning === true;
   const alwaysReasons = /deepseek.*r1/i.test(modelId);
   const supportsEffort = supportsReasoning && !alwaysReasons;
+  const supportsTools = model?.toolCall === true;
 
   return {
     supportsReasoning,
     supportsEffortLevels: supportsEffort,
     alwaysReasons,
+    supportsTools,
   };
 }
 
@@ -514,12 +518,12 @@ interface ModelState {
   favorites: Set<string>;
   toggleFavorite: (modelId: string) => boolean;
   isFavorite: (modelId: string) => boolean;
-  // Reasoning effort control
+  // Reasoning control (boolean toggle in UI; effort retained for backend compatibility)
+  reasoningEnabled: boolean;
+  setReasoningEnabled: (enabled: boolean) => void;
+  toggleReasoning: () => void;
   reasoningEffort: ReasoningEffort;
   setReasoningEffort: (effort: ReasoningEffort) => void;
-  // Max steps for multi-step tool calls (searches, etc.)
-  maxSteps: number; // Max tool call iterations (1-10)
-  setMaxSteps: (steps: number) => void;
 }
 
 export const useModelStore = create<ModelState>()(
@@ -552,40 +556,74 @@ export const useModelStore = create<ModelState>()(
 
         isFavorite: (modelId) => get().favorites.has(modelId),
 
-        // Reasoning effort - default to 'none' (disabled)
+        // Reasoning toggle - default off
+        reasoningEnabled: false,
+
+        setReasoningEnabled: (enabled) => {
+          analytics.thinkingModeChanged(enabled ? "enabled" : "disabled");
+          set(
+            {
+              reasoningEnabled: enabled,
+              reasoningEffort: enabled ? "medium" : "none",
+            },
+            false,
+            "model/reasoningEnabled",
+          );
+        },
+
+        toggleReasoning: () => {
+          const enabled = !get().reasoningEnabled;
+          analytics.thinkingModeChanged(enabled ? "enabled" : "disabled");
+          set(
+            {
+              reasoningEnabled: enabled,
+              reasoningEffort: enabled ? "medium" : "none",
+            },
+            false,
+            "model/toggleReasoning",
+          );
+        },
+
+        // Reasoning effort is retained for backend payload compatibility.
         reasoningEffort: "none" as ReasoningEffort,
 
         setReasoningEffort: (effort) => {
           analytics.thinkingModeChanged(effort);
-          set({ reasoningEffort: effort }, false, "model/reasoningEffort");
+          set(
+            {
+              reasoningEffort: effort,
+              reasoningEnabled: effort !== "none",
+            },
+            false,
+            "model/reasoningEffort",
+          );
         },
-
-        // Max steps for multi-step tool calls (always enabled, controls iterations)
-        maxSteps: 5, // Default: 5 steps max for tools
-        setMaxSteps: (steps) =>
-          set({ maxSteps: Math.max(1, Math.min(10, steps)) }, false, "model/maxSteps"),
       }),
       {
         name: "model-store",
         partialize: (state) => ({
           selectedModelId: state.selectedModelId,
           favorites: Array.from(state.favorites),
+          reasoningEnabled: state.reasoningEnabled,
           reasoningEffort: state.reasoningEffort,
-          maxSteps: state.maxSteps,
         }),
         merge: (persisted, current) => {
           const data = persisted as {
             selectedModelId?: string;
             favorites?: Array<string>;
+            reasoningEnabled?: boolean;
             reasoningEffort?: ReasoningEffort;
-            maxSteps?: number;
           };
+
+          const mergedEffort = data.reasoningEffort ?? current.reasoningEffort;
+          const mergedEnabled = data.reasoningEnabled ?? (mergedEffort !== "none");
+
           return {
             ...current,
             selectedModelId: data.selectedModelId ?? current.selectedModelId,
             favorites: new Set(data.favorites ?? []),
-            reasoningEffort: data.reasoningEffort ?? current.reasoningEffort,
-            maxSteps: data.maxSteps ?? current.maxSteps,
+            reasoningEnabled: mergedEnabled,
+            reasoningEffort: mergedEnabled ? mergedEffort : "none",
           };
         },
       },
