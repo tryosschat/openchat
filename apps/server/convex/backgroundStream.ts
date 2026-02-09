@@ -293,21 +293,6 @@ export const startStream = mutation({
 			if (usedCents >= DAILY_AI_LIMIT_CENTS) {
 				throw new Error("Daily usage limit reached. Connect your OpenRouter account to continue.");
 			}
-
-			// Prevent concurrent osschat streams per user (TOCTOU mitigation)
-			const runningOsschatJobs = await ctx.db
-				.query("streamJobs")
-				.withIndex("by_user", (q) => q.eq("userId", userId).eq("status", "running"))
-				.collect();
-			const pendingOsschatJobs = await ctx.db
-				.query("streamJobs")
-				.withIndex("by_user", (q) => q.eq("userId", userId).eq("status", "pending"))
-				.collect();
-			const activeOsschatCount = runningOsschatJobs.filter(j => j.provider === "osschat").length
-				+ pendingOsschatJobs.filter(j => j.provider === "osschat").length;
-			if (activeOsschatCount > 0) {
-				throw new Error("Please wait for your current request to finish before sending another.");
-			}
 		}
 
 		const existingActiveStream = await ctx.db
