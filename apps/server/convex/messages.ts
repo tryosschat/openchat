@@ -505,6 +505,85 @@ export const editAndRegenerate = mutation({
 	},
 });
 
+export const retryMessage = mutation({
+	args: {
+		chatId: v.id("chats"),
+		userId: v.id("users"),
+		messageId: v.id("messages"),
+	},
+	returns: v.object({
+		userContent: v.string(),
+		softDeletedCount: v.number(),
+	}),
+	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const chat = await assertOwnsChat(ctx, args.chatId, userId);
+		if (!chat) {
+			throw new Error("Chat not found");
+		}
+
+		const { ok, retryAfter } = await rateLimiter.limit(ctx, "messageSend", {
+			key: userId,
+		});
+		if (!ok) {
+			throwRateLimitError("messages retried", retryAfter);
+		}
+
+		const message = await ctx.db.get(args.messageId);
+		if (
+			!message ||
+			message.chatId !== args.chatId ||
+			message.role !== "user" ||
+			message.deletedAt
+		) {
+			throw new Error("Message not found");
+		}
+
+		const now = Date.now();
+
+		const activeStreams = await ctx.db
+			.query("streamJobs")
+			.withIndex("by_chat", (q) => q.eq("chatId", args.chatId).eq("status", "running"))
+			.collect();
+		const pendingStreams = await ctx.db
+			.query("streamJobs")
+			.withIndex("by_chat", (q) => q.eq("chatId", args.chatId).eq("status", "pending"))
+			.collect();
+		for (const stream of [...activeStreams, ...pendingStreams]) {
+			await ctx.db.patch(stream._id, {
+				status: "completed",
+				completedAt: now,
+			});
+		}
+
+		const allMessages = await ctx.db
+			.query("messages")
+			.withIndex("by_chat_not_deleted", (q) =>
+				q.eq("chatId", args.chatId).eq("deletedAt", undefined)
+			)
+			.order("asc")
+			.collect();
+
+		let softDeletedCount = 0;
+		for (const msg of allMessages) {
+			if (msg.createdAt > message.createdAt) {
+				await ctx.db.patch(msg._id, { deletedAt: now });
+				softDeletedCount += 1;
+			}
+		}
+
+		const currentCount = chat.messageCount ?? 0;
+		await ctx.db.patch(args.chatId, {
+			messageCount: Math.max(0, currentCount - softDeletedCount),
+			activeStreamId: undefined,
+			status: "idle",
+			updatedAt: now,
+		});
+
+		return { userContent: message.content, softDeletedCount };
+	},
+});
+
 export const streamUpsert = mutation({
 	args: {
 		chatId: v.id("chats"),
