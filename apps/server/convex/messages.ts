@@ -99,6 +99,16 @@ const messageDoc = v.object({
 	messageType: messageTypeValidator,
 	createdAt: v.number(),
 	deletedAt: v.optional(v.number()),
+	tokenUsage: v.optional(
+		v.object({
+			promptTokens: v.number(),
+			completionTokens: v.number(),
+			totalTokens: v.number(),
+		})
+	),
+	tokensPerSecond: v.optional(v.number()),
+	timeToFirstTokenMs: v.optional(v.number()),
+	totalDurationMs: v.optional(v.number()),
 });
 
 export const list = query({
@@ -211,6 +221,10 @@ export const list = query({
 			messageType: msg.messageType,
 			createdAt: msg.createdAt,
 			deletedAt: msg.deletedAt,
+			tokenUsage: msg.tokenUsage,
+			tokensPerSecond: msg.tokensPerSecond,
+			timeToFirstTokenMs: msg.timeToFirstTokenMs,
+			totalDurationMs: msg.totalDurationMs,
 		}));
 	},
 });

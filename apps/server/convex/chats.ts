@@ -25,6 +25,8 @@ const chatDoc = v.object({
 	messageCount: v.optional(v.number()),
 	status: v.optional(v.union(v.literal("idle"), v.literal("streaming"))),
 	activeStreamId: v.optional(v.string()),
+	forkedFromChatId: v.optional(v.id("chats")),
+	forkedFromMessageId: v.optional(v.string()),
 });
 
 // Optimized chat list response: exclude redundant fields to reduce bandwidth
@@ -36,6 +38,7 @@ const chatListItemDoc = v.object({
 	lastMessageAt: v.optional(v.number()),
 	// Chat status for streaming indicator in sidebar
 	status: v.optional(v.string()),
+	forkedFromChatId: v.optional(v.id("chats")),
 });
 
 // Security configuration: enforce maximum chat list limit
@@ -93,6 +96,7 @@ export const list = query({
 				lastMessageAt: chat.lastMessageAt,
 				// Include status for streaming indicator in sidebar
 				status: chat.status,
+				forkedFromChatId: chat.forkedFromChatId,
 			})),
 			nextCursor: results.continueCursor ?? null,
 		};
