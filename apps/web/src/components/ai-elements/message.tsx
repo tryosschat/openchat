@@ -9,10 +9,6 @@
 
 import { createContext, isValidElement, memo, useContext } from 'react'
 import { Streamdown } from 'streamdown'
-import type { ComponentProps, ReactNode } from 'react'
-import type { StreamdownProps } from 'streamdown'
-import { cn } from '@/lib/utils'
-import { useSmoothText } from '@/hooks/use-smooth-text'
 import {
   CodeBlock,
   CodeBlockActions,
@@ -21,6 +17,10 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from './code-block'
+import type { ComponentProps, ReactNode } from 'react'
+import type { StreamdownProps } from 'streamdown'
+import { useSmoothText } from '@/hooks/use-smooth-text'
+import { cn } from '@/lib/utils'
 
 // ============================================================================
 // Context
