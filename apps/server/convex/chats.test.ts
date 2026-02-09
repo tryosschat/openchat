@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { convexTest } from 'convex-test';
 import schema from './schema';
-import { api, components } from './_generated/api';
+import { api } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { modules, rateLimiter } from './testSetup.test';
 
@@ -293,7 +293,7 @@ describe('chats.list', () => {
   });
 
 	it('should filter out soft-deleted chats', async () => {
-		const chat1 = await asExternalId(t, 'test-user').mutation(api.chats.create, { userId, title: 'Active Chat' });
+		const _chat1 = await asExternalId(t, 'test-user').mutation(api.chats.create, { userId, title: 'Active Chat' });
 		const chat2 = await asExternalId(t, 'test-user').mutation(api.chats.create, { userId, title: 'Deleted Chat' });
 
     // Soft delete chat2

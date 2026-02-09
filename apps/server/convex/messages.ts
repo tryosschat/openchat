@@ -132,7 +132,7 @@ export const list = query({
 				try {
 					const url = await ctx.storage.getUrl(storageId);
 					return { storageId, url };
-				} catch (_error) {
+				} catch {
 					return { storageId, url: null };
 				}
 			});

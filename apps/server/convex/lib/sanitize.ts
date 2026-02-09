@@ -8,6 +8,7 @@
 function removeControlCharacters(str: string): string {
 	// Remove control characters except newlines (\n, \r) and tabs (\t)
 	// Matches: \x00-\x08, \x0B (vertical tab), \x0C (form feed), \x0E-\x1F, \x7F (DEL)
+	// oxlint-disable-next-line no-control-regex
 	return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
 }
 
@@ -89,9 +90,10 @@ export function sanitizeText(text: string, maxLength: number): string {
  */
 export function sanitizeFilename(filename: string, maxLength = 255): string {
 	// Remove any path components (handle both forward and backslashes)
-	let sanitized = filename.replace(/^.*[\\\/]/, "");
+	let sanitized = filename.replace(/^.*[/\\]/, "");
 
 	// Remove dangerous characters (null bytes, control chars, extended control chars)
+	// oxlint-disable-next-line no-control-regex
 	sanitized = sanitized.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 
 	// Remove or replace potentially dangerous filesystem characters

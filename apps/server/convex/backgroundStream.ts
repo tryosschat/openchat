@@ -475,7 +475,7 @@ export const executeStream = internalAction({
 							});
 							updateCounter = 0;
 						}
-					} catch (parseError) {
+					} catch {
 						console.error("[BackgroundStream] Failed to parse SSE chunk:", data);
 					}
 				}
