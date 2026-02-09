@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@server/convex/_generated/api";
-import { CheckIcon, CheckSquareIcon, PencilIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
+import { CheckIcon, CheckSquareIcon, GitFork, PencilIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import {
@@ -44,6 +44,7 @@ interface ChatItem {
   title: string;
   updatedAt: number;
   status?: string;
+  forkedFromChatId?: string;
 }
 
 // Skeleton for loading chat items
@@ -170,9 +171,11 @@ function ChatGroup({
                   isSelectionMode && "pl-8",
                   isSelectionMode && isSelected && "bg-sidebar-accent/50"
                 )}
-              >
-                {!isSelectionMode && <ChatIcon />}
-                {generatingChatIds[chat._id] ? (
+               >
+                 {!isSelectionMode && (
+                   chat.forkedFromChatId ? <GitFork className="size-4 shrink-0" /> : <ChatIcon />
+                 )}
+                 {generatingChatIds[chat._id] ? (
                   <span className="block h-5 flex-1 rounded bg-sidebar-foreground/10 animate-pulse" />
                 ) : editingChatId === chat._id ? (
                   <input
