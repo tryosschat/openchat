@@ -1252,7 +1252,7 @@ const ChatMessageList = memo(function ChatMessageList({
 								content={item.textParts.map((p) => p.text).join("")}
 								isStreaming={item.isCurrentlyStreaming}
 								onRetry={(modelId) => {
-									const precedingUser = [...processedMessages.slice(0, itemIndex)]
+									const precedingUser = processedMessages.slice(0, itemIndex)
 										.reverse()
 										.find((candidate) => candidate.message.role === "user");
 
@@ -1266,7 +1266,7 @@ const ChatMessageList = memo(function ChatMessageList({
 									void onRetryMessage(precedingUser.message.id, modelId);
 								}}
 								onFork={(modelId) => {
-									const precedingUser = [...processedMessages.slice(0, itemIndex)]
+									const precedingUser = processedMessages.slice(0, itemIndex)
 										.reverse()
 										.find((candidate) => candidate.message.role === "user");
 

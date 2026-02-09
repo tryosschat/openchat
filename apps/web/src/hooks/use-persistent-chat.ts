@@ -519,10 +519,10 @@ export function usePersistentChat({
 					setCurrentChatId(targetChatId);
 					analytics.chatCreated();
 					onChatCreatedRef.current?.(targetChatId);
-				} catch (e) {
-					toast.error("Failed to create chat");
-					return;
-				}
+			} catch {
+				toast.error("Failed to create chat");
+				return;
+			}
 			}
 
 			const userMsgId = crypto.randomUUID();
