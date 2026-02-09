@@ -97,8 +97,7 @@ interface ChatGroupProps {
   onEditSubmit: () => void;
   onEditCancel: () => void;
   selectedChatIds: Set<string>;
-  onShiftClick: (chatId: Id<"chats">) => void;
-  deselectAll: () => void;
+  onSelectClick: (chatId: Id<"chats">, shiftKey: boolean) => void;
 }
 
 function ChatGroup({
@@ -116,8 +115,7 @@ function ChatGroup({
   onEditSubmit,
   onEditCancel,
   selectedChatIds,
-  onShiftClick,
-  deselectAll,
+  onSelectClick,
 }: ChatGroupProps) {
   if (chats.length === 0) return null;
 
@@ -133,13 +131,10 @@ function ChatGroup({
                 isActive={currentChatId === chat._id}
                 onClick={(event) => {
                   if (editingChatId === chat._id) return;
-                  if (event.shiftKey) {
+                  if (event.shiftKey || selectedChatIds.size > 0) {
                     event.preventDefault();
-                    onShiftClick(chat._id);
+                    onSelectClick(chat._id, event.shiftKey);
                     return;
-                  }
-                  if (selectedChatIds.size > 0) {
-                    deselectAll();
                   }
                   onChatClick(chat._id);
                 }}
@@ -192,7 +187,7 @@ function ChatGroup({
                   if (event.shiftKey) {
                     event.preventDefault();
                     event.stopPropagation();
-                    onShiftClick(chat._id);
+                    onSelectClick(chat._id, true);
                     return;
                   }
                   onQuickDelete(chat._id, event);
@@ -238,7 +233,7 @@ export function AppSidebar({
   const isMountedRef = useRef(true);
 
   const selectedChatIds = useBulkSelectionStore((s) => s.selectedChatIds);
-  const toggleChatSelection = useBulkSelectionStore((s) => s.toggleChatSelection);
+  const selectChat = useBulkSelectionStore((s) => s.selectChat);
   const selectMultiple = useBulkSelectionStore((s) => s.selectAll);
   const deselectAll = useBulkSelectionStore((s) => s.deselectAll);
   const getSelectedChatIds = useBulkSelectionStore((s) => s.getSelectedChatIds);
@@ -309,27 +304,26 @@ export function AppSidebar({
     [deleteChatId, chats],
   );
 
-  const handleShiftClick = useCallback(
-    (chatId: Id<"chats">) => {
-      const anchor = selectionAnchorRef.current;
-      if (!anchor || selectedChatIds.size === 0) {
-        toggleChatSelection(chatId);
-        selectionAnchorRef.current = chatId;
-        return;
+  const handleSelectClick = useCallback(
+    (chatId: Id<"chats">, shiftKey: boolean) => {
+      if (shiftKey) {
+        const anchor = selectionAnchorRef.current ?? currentChatId;
+        if (anchor) {
+          const anchorIdx = flatChatIds.indexOf(anchor as Id<"chats">);
+          const targetIdx = flatChatIds.indexOf(chatId);
+          if (anchorIdx !== -1 && targetIdx !== -1) {
+            const start = Math.min(anchorIdx, targetIdx);
+            const end = Math.max(anchorIdx, targetIdx);
+            selectMultiple(flatChatIds.slice(start, end + 1));
+            selectionAnchorRef.current = anchor;
+            return;
+          }
+        }
       }
-      const anchorIdx = flatChatIds.indexOf(anchor as Id<"chats">);
-      const targetIdx = flatChatIds.indexOf(chatId);
-      if (anchorIdx === -1 || targetIdx === -1) {
-        toggleChatSelection(chatId);
-        selectionAnchorRef.current = chatId;
-        return;
-      }
-      const start = Math.min(anchorIdx, targetIdx);
-      const end = Math.max(anchorIdx, targetIdx);
-      const rangeIds = flatChatIds.slice(start, end + 1);
-      selectMultiple(rangeIds);
+      selectChat(chatId);
+      selectionAnchorRef.current = chatId;
     },
-    [flatChatIds, selectedChatIds.size, toggleChatSelection, selectMultiple],
+    [flatChatIds, currentChatId, selectChat, selectMultiple],
   );
 
   const handleNewChat = () => {
@@ -676,8 +670,7 @@ export function AppSidebar({
                 onEditSubmit={handleSubmitEdit}
                 onEditCancel={handleCancelEdit}
                 selectedChatIds={selectedChatIds}
-                onShiftClick={handleShiftClick}
-                deselectAll={deselectAll}
+                onSelectClick={handleSelectClick}
               />
               <ChatGroup
                 label="Last 7 days"
@@ -694,8 +687,7 @@ export function AppSidebar({
                 onEditSubmit={handleSubmitEdit}
                 onEditCancel={handleCancelEdit}
                 selectedChatIds={selectedChatIds}
-                onShiftClick={handleShiftClick}
-                deselectAll={deselectAll}
+                onSelectClick={handleSelectClick}
               />
               <ChatGroup
                 label="Last 30 days"
@@ -712,8 +704,7 @@ export function AppSidebar({
                 onEditSubmit={handleSubmitEdit}
                 onEditCancel={handleCancelEdit}
                 selectedChatIds={selectedChatIds}
-                onShiftClick={handleShiftClick}
-                deselectAll={deselectAll}
+                onSelectClick={handleSelectClick}
               />
               <ChatGroup
                 label="Older"
@@ -730,8 +721,7 @@ export function AppSidebar({
                 onEditSubmit={handleSubmitEdit}
                 onEditCancel={handleCancelEdit}
                 selectedChatIds={selectedChatIds}
-                onShiftClick={handleShiftClick}
-                deselectAll={deselectAll}
+                onSelectClick={handleSelectClick}
               />
             </>
           )}

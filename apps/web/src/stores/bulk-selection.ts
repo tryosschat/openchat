@@ -90,7 +90,13 @@ export const useBulkSelectionStore = create<BulkSelectionState>()(
 				),
 
 			selectAll: (chatIds) =>
-				set({ selectedChatIds: new Set(chatIds) }, false, "bulkSelection/selectAll"),
+				set(
+					(state) => ({
+						selectedChatIds: new Set([...state.selectedChatIds, ...chatIds]),
+					}),
+					false,
+					"bulkSelection/selectAll"
+				),
 
 			deselectAll: () =>
 				set({ selectedChatIds: new Set<string>() }, false, "bulkSelection/deselectAll"),
