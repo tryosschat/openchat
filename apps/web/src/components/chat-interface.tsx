@@ -15,7 +15,6 @@ import { useQuery } from "convex/react";
 import { api } from "@server/convex/_generated/api";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpIcon, BrainIcon, GlobeIcon,
-  CheckIcon,
   Loader2Icon,
   PaperclipIcon,
   SearchIcon,
@@ -1154,46 +1153,76 @@ const ChatMessageList = memo(function ChatMessageList({
                   <Message from={item.message.role as "user" | "assistant"}>
                     {item.message.role === "user" && editingMessageId === item.message.id ? (
                       <MessageContent>
-                        <div className="w-full max-w-[min(100%,42rem)] space-y-2">
-                          <textarea
-                            value={editingContent}
-                            onChange={(e) => setEditingContent(e.currentTarget.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") {
-                                e.preventDefault();
-                                cancelEditing();
-                              }
-                              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                                e.preventDefault();
-                                void submitEdit();
-                              }
-                            }}
-                            disabled={isSavingEdit}
-                            className="min-h-24 w-full resize-y rounded-xl border border-border/60 bg-background/70 p-3 text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                            aria-label="Edit message"
-                          />
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={cancelEditing}
-                              disabled={isSavingEdit}
-                            >
-                              <XIcon className="size-3.5" />
-                              Cancel
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => {
-                                void submitEdit();
+                        <div className="w-full max-w-[min(100%,42rem)]">
+                          <div
+                            className={cn(
+                              "relative rounded-2xl",
+                              "bg-background/90 backdrop-blur-xl",
+                              "border border-border/40",
+                              "shadow-lg shadow-black/5",
+                            )}
+                          >
+                            <textarea
+                              ref={(el) => {
+                                if (el) {
+                                  el.focus();
+                                  el.setSelectionRange(el.value.length, el.value.length);
+                                }
                               }}
-                              disabled={!editingContent.trim() || isSavingEdit}
-                            >
-                              <CheckIcon className="size-3.5" />
-                              {isSavingEdit ? "Saving..." : "Save & regenerate"}
-                            </Button>
+                              value={editingContent}
+                              onChange={(e) => setEditingContent(e.currentTarget.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  cancelEditing();
+                                }
+                                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                                  e.preventDefault();
+                                  void submitEdit();
+                                }
+                              }}
+                              disabled={isSavingEdit}
+                              className={cn(
+                                "min-h-[60px] w-full py-3 px-4",
+                                "text-[15px] leading-relaxed",
+                                "placeholder:text-muted-foreground/50",
+                                "resize-none border-0 bg-transparent shadow-none ring-0 outline-none focus-visible:ring-0",
+                              )}
+                              aria-label="Edit message"
+                            />
+                            <div className="flex items-center justify-between px-3 pb-3 pt-1">
+                              <button
+                                type="button"
+                                onClick={cancelEditing}
+                                disabled={isSavingEdit}
+                                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                              >
+                                <XIcon className="size-3.5" />
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void submitEdit();
+                                }}
+                                disabled={!editingContent.trim() || isSavingEdit}
+                                className={cn(
+                                  "flex items-center justify-center",
+                                  "size-8 rounded-full",
+                                  "transition-all duration-150",
+                                  editingContent.trim() && !isSavingEdit
+                                    ? "bg-primary text-primary-foreground hover:scale-105 active:scale-95"
+                                    : "bg-muted text-muted-foreground cursor-not-allowed",
+                                )}
+                                aria-label={isSavingEdit ? "Saving..." : "Save & regenerate"}
+                              >
+                                {isSavingEdit ? (
+                                  <Loader2Icon className="size-3.5 animate-spin" />
+                                ) : (
+                                  <ArrowUpIcon className="size-3.5" />
+                                )}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </MessageContent>

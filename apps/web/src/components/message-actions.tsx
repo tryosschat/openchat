@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
@@ -188,38 +189,40 @@ function RetryDropdown({
 					Retry same
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
-				<DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide">
-					or switch model
-				</DropdownMenuLabel>
+				<DropdownMenuGroup>
+					<DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide">
+						or switch model
+					</DropdownMenuLabel>
 
-				<div className="max-h-72 overflow-y-auto">
-					{favoriteModels.length > 0 && (
-						<>
-							<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">Favorites</DropdownMenuLabel>
-							{favoriteModels.map((model) => (
-								<DropdownMenuItem key={model.id} onClick={() => handleRetry(model.id)}>
-									<ProviderLogo providerId={model.logoId} />
-									<span className="flex-1 truncate">{model.name}</span>
-									{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
-								</DropdownMenuItem>
-							))}
-							<DropdownMenuSeparator />
-						</>
-					)}
+						<div className="max-h-72 overflow-y-auto">
+						{favoriteModels.length > 0 && (
+							<DropdownMenuGroup>
+								<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">Favorites</DropdownMenuLabel>
+								{favoriteModels.map((model) => (
+									<DropdownMenuItem key={model.id} onClick={() => handleRetry(model.id)}>
+										<ProviderLogo providerId={model.logoId} />
+										<span className="flex-1 truncate">{model.name}</span>
+										{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
+									</DropdownMenuItem>
+								))}
+								<DropdownMenuSeparator />
+							</DropdownMenuGroup>
+						)}
 
-					{providerGroups.map((group) => (
-						<div key={group.provider}>
-							<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">{group.provider}</DropdownMenuLabel>
-							{group.models.map((model) => (
-								<DropdownMenuItem key={model.id} onClick={() => handleRetry(model.id)}>
-									<ProviderLogo providerId={model.logoId} />
-									<span className="flex-1 truncate">{model.name}</span>
-									{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
-								</DropdownMenuItem>
-							))}
-						</div>
-					))}
-				</div>
+						{providerGroups.map((group) => (
+							<DropdownMenuGroup key={group.provider}>
+								<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">{group.provider}</DropdownMenuLabel>
+								{group.models.map((model) => (
+									<DropdownMenuItem key={model.id} onClick={() => handleRetry(model.id)}>
+										<ProviderLogo providerId={model.logoId} />
+										<span className="flex-1 truncate">{model.name}</span>
+										{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
+									</DropdownMenuItem>
+								))}
+							</DropdownMenuGroup>
+						))}
+					</div>
+				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -298,38 +301,40 @@ function ForkDropdown({
 					Branch off
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
-				<DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide">
-					or switch model
-				</DropdownMenuLabel>
+				<DropdownMenuGroup>
+					<DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide">
+						or switch model
+					</DropdownMenuLabel>
 
-				<div className="max-h-72 overflow-y-auto">
-					{favoriteModels.length > 0 && (
-						<>
-							<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">Favorites</DropdownMenuLabel>
-							{favoriteModels.map((model) => (
-								<DropdownMenuItem key={model.id} onClick={() => handleFork(model.id)}>
-									<ProviderLogo providerId={model.logoId} />
-									<span className="flex-1 truncate">{model.name}</span>
-									{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
-								</DropdownMenuItem>
-							))}
-							<DropdownMenuSeparator />
-						</>
-					)}
+					<div className="max-h-72 overflow-y-auto">
+						{favoriteModels.length > 0 && (
+							<DropdownMenuGroup>
+								<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">Favorites</DropdownMenuLabel>
+								{favoriteModels.map((model) => (
+									<DropdownMenuItem key={model.id} onClick={() => handleFork(model.id)}>
+										<ProviderLogo providerId={model.logoId} />
+										<span className="flex-1 truncate">{model.name}</span>
+										{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
+									</DropdownMenuItem>
+								))}
+								<DropdownMenuSeparator />
+							</DropdownMenuGroup>
+						)}
 
-					{providerGroups.map((group) => (
-						<div key={group.provider}>
-							<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">{group.provider}</DropdownMenuLabel>
-							{group.models.map((model) => (
-								<DropdownMenuItem key={model.id} onClick={() => handleFork(model.id)}>
-									<ProviderLogo providerId={model.logoId} />
-									<span className="flex-1 truncate">{model.name}</span>
-									{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
-								</DropdownMenuItem>
-							))}
-						</div>
-					))}
-				</div>
+						{providerGroups.map((group) => (
+							<DropdownMenuGroup key={group.provider}>
+								<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">{group.provider}</DropdownMenuLabel>
+								{group.models.map((model) => (
+									<DropdownMenuItem key={model.id} onClick={() => handleFork(model.id)}>
+										<ProviderLogo providerId={model.logoId} />
+										<span className="flex-1 truncate">{model.name}</span>
+										{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
+									</DropdownMenuItem>
+								))}
+							</DropdownMenuGroup>
+						))}
+					</div>
+				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

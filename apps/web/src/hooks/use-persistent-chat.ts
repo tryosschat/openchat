@@ -1050,12 +1050,23 @@ export function usePersistentChat({
 					return { role: message.role, content: textPart?.text || "" };
 				});
 
-			try {
-				const { newChatId } = await forkChatMut({
-					chatId: chatIdRef.current as Id<"chats">,
-					userId: convexUserId,
-					messageId,
+		try {
+			const forkMessageDoc = messagesResult?.find(
+				(msg) => msg._id === messageId || msg.clientMessageId === messageId,
+			);
+
+			if (!forkMessageDoc) {
+				toast.error("Could not branch off", {
+					description: "Message is not synced yet. Please try again in a second.",
 				});
+				return undefined;
+			}
+
+			const { newChatId } = await forkChatMut({
+				chatId: chatIdRef.current as Id<"chats">,
+				userId: convexUserId,
+				messageId: forkMessageDoc._id,
+			});
 
 				await cleanupStaleJobs({ userId: convexUserId }).catch(() => {});
 
@@ -1093,6 +1104,7 @@ export function usePersistentChat({
 			forkChatMut,
 			cleanupStaleJobs,
 			startBackgroundStream,
+			messagesResult,
 		],
 	);
 
