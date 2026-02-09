@@ -1,21 +1,54 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Check, Copy, GitFork, Pencil, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useFavoriteModels } from "@/hooks/use-favorite-models";
 import { copyMessageText } from "@/lib/clipboard";
+import { useModelStore, useModels } from "@/stores/model";
 
 interface MessageActionsProps {
 	messageId: string;
 	content: string;
 	isStreaming?: boolean;
 	onEdit?: () => void;
-	onRetry?: () => void;
-	onFork?: () => void;
+	onRetry?: (modelId?: string) => void;
+	onFork?: (modelId?: string) => void;
+}
+
+function ProviderLogo({ providerId }: { providerId: string }) {
+	const [hasError, setHasError] = useState(false);
+
+	if (hasError) {
+		return (
+			<div className="bg-muted text-muted-foreground flex size-4 items-center justify-center rounded text-[10px] font-semibold uppercase">
+				{providerId.charAt(0)}
+			</div>
+		);
+	}
+
+	return (
+		<img
+			alt={`${providerId} logo`}
+			className="size-4 shrink-0 dark:invert"
+			height={16}
+			src={`https://models.dev/logos/${providerId}.svg`}
+			width={16}
+			onError={() => setHasError(true)}
+		/>
+	);
 }
 
 function ActionButton({
@@ -25,7 +58,7 @@ function ActionButton({
 }: {
 	label: string;
 	onClick: () => void;
-	children: React.ReactNode;
+	children: ReactNode;
 }) {
 	return (
 		<Tooltip>
@@ -82,6 +115,226 @@ function CopyButton({ content }: { content: string }) {
 	);
 }
 
+function RetryDropdown({
+	messageId,
+	onRetry,
+}: {
+	messageId: string;
+	onRetry?: (modelId?: string) => void;
+}) {
+	const { models } = useModels();
+	const { favorites } = useFavoriteModels();
+	const selectedModelId = useModelStore((s) => s.selectedModelId);
+
+	const favoriteModels = useMemo(() => {
+		return models
+			.filter((model) => favorites.has(model.id))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	}, [models, favorites]);
+
+	const providerGroups = useMemo(() => {
+		const grouped = new Map<string, Array<(typeof models)[number]>>();
+		for (const model of models) {
+			if (favorites.has(model.id)) continue;
+			const key = model.provider;
+			const list = grouped.get(key) ?? [];
+			list.push(model);
+			grouped.set(key, list);
+		}
+
+		return Array.from(grouped.entries())
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([provider, providerModels]) => ({
+				provider,
+				models: providerModels.sort((a, b) => a.name.localeCompare(b.name)),
+			}));
+	}, [models, favorites]);
+
+	const handleRetry = useCallback(
+		(modelId?: string) => {
+			if (onRetry) {
+				onRetry(modelId);
+				return;
+			}
+			console.log("[message-actions] retry", messageId, modelId ?? "same");
+		},
+		[messageId, onRetry],
+	);
+
+	return (
+		<DropdownMenu>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<DropdownMenuTrigger
+							render={
+								<Button
+									variant="ghost"
+									size="icon-xs"
+									className="text-muted-foreground hover:text-foreground cursor-pointer"
+								/>
+							}
+						/>
+					}
+				>
+					<RotateCcw className="size-3.5" />
+				</TooltipTrigger>
+				<TooltipContent side="bottom">Retry</TooltipContent>
+			</Tooltip>
+
+			<DropdownMenuContent align="end" className="w-72 p-1" sideOffset={8}>
+				<DropdownMenuItem onClick={() => handleRetry()}>
+					<RotateCcw className="size-3.5" />
+					Retry same
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide">
+					or switch model
+				</DropdownMenuLabel>
+
+				<div className="max-h-72 overflow-y-auto">
+					{favoriteModels.length > 0 && (
+						<>
+							<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">Favorites</DropdownMenuLabel>
+							{favoriteModels.map((model) => (
+								<DropdownMenuItem key={model.id} onClick={() => handleRetry(model.id)}>
+									<ProviderLogo providerId={model.logoId} />
+									<span className="flex-1 truncate">{model.name}</span>
+									{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
+								</DropdownMenuItem>
+							))}
+							<DropdownMenuSeparator />
+						</>
+					)}
+
+					{providerGroups.map((group) => (
+						<div key={group.provider}>
+							<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">{group.provider}</DropdownMenuLabel>
+							{group.models.map((model) => (
+								<DropdownMenuItem key={model.id} onClick={() => handleRetry(model.id)}>
+									<ProviderLogo providerId={model.logoId} />
+									<span className="flex-1 truncate">{model.name}</span>
+									{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
+								</DropdownMenuItem>
+							))}
+						</div>
+					))}
+				</div>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+function ForkDropdown({
+	messageId,
+	onFork,
+}: {
+	messageId: string;
+	onFork?: (modelId?: string) => void;
+}) {
+	const { models } = useModels();
+	const { favorites } = useFavoriteModels();
+	const selectedModelId = useModelStore((s) => s.selectedModelId);
+
+	const favoriteModels = useMemo(() => {
+		return models
+			.filter((model) => favorites.has(model.id))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	}, [models, favorites]);
+
+	const providerGroups = useMemo(() => {
+		const grouped = new Map<string, Array<(typeof models)[number]>>();
+		for (const model of models) {
+			if (favorites.has(model.id)) continue;
+			const key = model.provider;
+			const list = grouped.get(key) ?? [];
+			list.push(model);
+			grouped.set(key, list);
+		}
+
+		return Array.from(grouped.entries())
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([provider, providerModels]) => ({
+				provider,
+				models: providerModels.sort((a, b) => a.name.localeCompare(b.name)),
+			}));
+	}, [models, favorites]);
+
+	const handleFork = useCallback(
+		(modelId?: string) => {
+			if (onFork) {
+				onFork(modelId);
+				return;
+			}
+			console.log("[message-actions] fork", messageId, modelId ?? "same");
+		},
+		[messageId, onFork],
+	);
+
+	return (
+		<DropdownMenu>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<DropdownMenuTrigger
+							render={
+								<Button
+									variant="ghost"
+									size="icon-xs"
+									className="text-muted-foreground hover:text-foreground cursor-pointer"
+								/>
+							}
+						/>
+					}
+				>
+					<GitFork className="size-3.5" />
+				</TooltipTrigger>
+				<TooltipContent side="bottom">Fork</TooltipContent>
+			</Tooltip>
+
+			<DropdownMenuContent align="end" className="w-72 p-1" sideOffset={8}>
+				<DropdownMenuItem onClick={() => handleFork()}>
+					<GitFork className="size-3.5" />
+					Branch off
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide">
+					or switch model
+				</DropdownMenuLabel>
+
+				<div className="max-h-72 overflow-y-auto">
+					{favoriteModels.length > 0 && (
+						<>
+							<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">Favorites</DropdownMenuLabel>
+							{favoriteModels.map((model) => (
+								<DropdownMenuItem key={model.id} onClick={() => handleFork(model.id)}>
+									<ProviderLogo providerId={model.logoId} />
+									<span className="flex-1 truncate">{model.name}</span>
+									{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
+								</DropdownMenuItem>
+							))}
+							<DropdownMenuSeparator />
+						</>
+					)}
+
+					{providerGroups.map((group) => (
+						<div key={group.provider}>
+							<DropdownMenuLabel className="px-3 py-1.5 text-[11px]">{group.provider}</DropdownMenuLabel>
+							{group.models.map((model) => (
+								<DropdownMenuItem key={model.id} onClick={() => handleFork(model.id)}>
+									<ProviderLogo providerId={model.logoId} />
+									<span className="flex-1 truncate">{model.name}</span>
+									{selectedModelId === model.id ? <Check className="size-3.5" /> : null}
+								</DropdownMenuItem>
+							))}
+						</div>
+					))}
+				</div>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 export function UserMessageActions({
 	messageId,
 	content,
@@ -107,25 +360,9 @@ export function UserMessageActions({
 
 				<CopyButton content={content} />
 
-				<ActionButton
-					label="Retry"
-					onClick={
-						onRetry ??
-						(() => console.log("[message-actions] retry", messageId))
-					}
-				>
-					<RotateCcw className="size-3.5" />
-				</ActionButton>
+				<RetryDropdown messageId={messageId} onRetry={onRetry} />
 
-				<ActionButton
-					label="Fork"
-					onClick={
-						onFork ??
-						(() => console.log("[message-actions] fork", messageId))
-					}
-				>
-					<GitFork className="size-3.5" />
-				</ActionButton>
+				<ForkDropdown messageId={messageId} onFork={onFork} />
 			</div>
 		</TooltipProvider>
 	);
@@ -145,25 +382,9 @@ export function AssistantMessageActions({
 			<div className="flex items-center gap-1 py-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
 				<CopyButton content={content} />
 
-				<ActionButton
-					label="Retry"
-					onClick={
-						onRetry ??
-						(() => console.log("[message-actions] retry", messageId))
-					}
-				>
-					<RotateCcw className="size-3.5" />
-				</ActionButton>
+				<RetryDropdown messageId={messageId} onRetry={onRetry} />
 
-				<ActionButton
-					label="Fork"
-					onClick={
-						onFork ??
-						(() => console.log("[message-actions] fork", messageId))
-					}
-				>
-					<GitFork className="size-3.5" />
-				</ActionButton>
+				<ForkDropdown messageId={messageId} onFork={onFork} />
 			</div>
 		</TooltipProvider>
 	);

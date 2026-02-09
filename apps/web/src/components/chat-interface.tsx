@@ -872,7 +872,7 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Use persistent chat hook with Convex integration
-  const { messages, sendMessage, editMessage, status, error, stop, isNewChat } = usePersistentChat({
+	const { messages, sendMessage, editMessage, retryMessage, forkMessage, status, error, stop, isNewChat } = usePersistentChat({
     chatId,
     onChatCreated: (newChatId) => {
       // Navigate to the new chat page
@@ -901,6 +901,15 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
     [sendMessage],
   );
 
+	const handleForkMessage = useCallback(
+		async (messageId: string, modelId?: string) => {
+			const newChatId = await forkMessage(messageId, modelId);
+			if (!newChatId) return;
+			navigate({ to: "/c/$chatId", params: { chatId: newChatId } });
+		},
+		[forkMessage, navigate],
+	);
+
   // Note: handlePromptSelect is handled in ChatInterfaceContent
   // because it needs access to the PromptInputProvider context
 
@@ -917,6 +926,8 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         stop={stop}
         handleSubmit={handleSubmit}
         onEditMessage={editMessage}
+        onRetryMessage={retryMessage}
+			onForkMessage={handleForkMessage}
         textareaRef={textareaRef}
       />
     </PromptInputProvider>
@@ -934,6 +945,8 @@ interface ChatMessageListProps {
   isNewChat: boolean;
   onPromptSelect: (prompt: string) => void;
   onEditMessage: (messageId: string, newContent: string) => Promise<void>;
+  onRetryMessage: (messageId: string, modelId?: string) => Promise<void>;
+	onForkMessage: (messageId: string, modelId?: string) => Promise<void>;
 }
 
 const ChatMessageList = memo(function ChatMessageList({
@@ -942,6 +955,8 @@ const ChatMessageList = memo(function ChatMessageList({
   isNewChat,
   onPromptSelect,
   onEditMessage,
+  onRetryMessage,
+	onForkMessage,
 }: ChatMessageListProps) {
   const [openByMessageId, setOpenByMessageId] = useState<Record<string, boolean>>({});
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -1119,7 +1134,7 @@ const ChatMessageList = memo(function ChatMessageList({
           <StartScreen onPromptSelect={onPromptSelect} />
         ) : messages.length === 0 ? null : (
           <>
-            {processedMessages.map((item) => {
+			{processedMessages.map((item, itemIndex) => {
               if (item.shouldSkip) return null;
 
               if (item.msg.messageType === "error" && item.msg.error) {
@@ -1217,20 +1232,54 @@ const ChatMessageList = memo(function ChatMessageList({
                         ))}
                       </MessageContent>
                     )}
-                    {item.message.role === "user" ? (
-                      <UserMessageActions
-                        messageId={item.message.id}
-                        content={item.textParts.map((p) => p.text).join("")}
-                        isStreaming={item.isCurrentlyStreaming || editingMessageId === item.message.id}
-                        onEdit={() => startEditing(item.message.id, item.textParts.map((p) => p.text).join(""))}
-                      />
-                    ) : (
-                      <>
-                        <AssistantMessageActions
-                          messageId={item.message.id}
-                          content={item.textParts.map((p) => p.text).join("")}
-                          isStreaming={item.isCurrentlyStreaming}
-                        />
+					{item.message.role === "user" ? (
+						<UserMessageActions
+							messageId={item.message.id}
+							content={item.textParts.map((p) => p.text).join("")}
+							isStreaming={item.isCurrentlyStreaming || editingMessageId === item.message.id}
+							onEdit={() => startEditing(item.message.id, item.textParts.map((p) => p.text).join(""))}
+							onRetry={(modelId) => {
+								void onRetryMessage(item.message.id, modelId);
+							}}
+							onFork={(modelId) => {
+								void onForkMessage(item.message.id, modelId);
+							}}
+						/>
+					) : (
+						<>
+							<AssistantMessageActions
+								messageId={item.message.id}
+								content={item.textParts.map((p) => p.text).join("")}
+								isStreaming={item.isCurrentlyStreaming}
+								onRetry={(modelId) => {
+									const precedingUser = [...processedMessages.slice(0, itemIndex)]
+										.reverse()
+										.find((candidate) => candidate.message.role === "user");
+
+									if (!precedingUser) {
+										toast.error("Could not retry response", {
+											description: "No preceding user message found for this assistant response.",
+										});
+										return;
+									}
+
+									void onRetryMessage(precedingUser.message.id, modelId);
+								}}
+								onFork={(modelId) => {
+									const precedingUser = [...processedMessages.slice(0, itemIndex)]
+										.reverse()
+										.find((candidate) => candidate.message.role === "user");
+
+									if (!precedingUser) {
+										toast.error("Could not branch off", {
+											description: "No preceding user message found for this assistant response.",
+										});
+										return;
+									}
+
+									void onForkMessage(precedingUser.message.id, modelId);
+								}}
+							/>
                         <MessageAnalytics
                           modelId={item.msg.modelId}
                           tokensPerSecond={item.msg.tokensPerSecond}
@@ -1271,6 +1320,8 @@ interface ChatInterfaceContentProps {
   stop: () => void;
   handleSubmit: (message: PromptInputMessage) => Promise<void>;
   onEditMessage: (messageId: string, newContent: string) => Promise<void>;
+  onRetryMessage: (messageId: string, modelId?: string) => Promise<void>;
+	onForkMessage: (messageId: string, modelId?: string) => Promise<void>;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
@@ -1283,6 +1334,8 @@ function ChatInterfaceContent({
   stop,
   handleSubmit,
   onEditMessage,
+  onRetryMessage,
+	onForkMessage,
   textareaRef,
 }: ChatInterfaceContentProps) {
   const controller = usePromptInputController();
@@ -1353,6 +1406,8 @@ function ChatInterfaceContent({
         isNewChat={isNewChat}
         onPromptSelect={onPromptSelect}
         onEditMessage={onEditMessage}
+        onRetryMessage={onRetryMessage}
+			onForkMessage={onForkMessage}
       />
 
       <div className="px-2 md:px-4 pt-2 md:pt-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:pb-4">
