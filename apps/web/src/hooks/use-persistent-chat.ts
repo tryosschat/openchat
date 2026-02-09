@@ -533,7 +533,11 @@ export function usePersistentChat({
 				chatId: targetChatId as Id<"chats">,
 				userId: convexUserId,
 				userMessage: { content: message.text, clientMessageId: userMsgId, createdAt: userCreatedAt },
-			}).catch(() => {});
+			}).catch(() => {
+				toast.error("Message may not be saved", {
+					description: "We could not persist your message. Please resend if it is missing after refresh.",
+				});
+			});
 
 			try {
 				await cleanupStaleJobs({ userId: convexUserId }).catch(() => {});

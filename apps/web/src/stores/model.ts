@@ -623,7 +623,7 @@ export const useModelStore = create<ModelState>()(
             selectedModelId: data.selectedModelId ?? current.selectedModelId,
             favorites: new Set(data.favorites ?? []),
             reasoningEnabled: mergedEnabled,
-            reasoningEffort: mergedEnabled ? "medium" : "none",
+            reasoningEffort: mergedEnabled ? mergedEffort : "none",
           };
         },
       },
