@@ -97,7 +97,7 @@ describe('messages.list', () => {
   });
 
   it('should filter out soft-deleted messages', async () => {
-    const msg1Id = await t.run(async (ctx) => {
+    const _msg1Id = await t.run(async (ctx) => {
       return await ctx.db.insert('messages', {
         chatId,
         role: 'user',
@@ -107,7 +107,7 @@ describe('messages.list', () => {
       });
     });
 
-    const msg2Id = await t.run(async (ctx) => {
+    const _msg2Id = await t.run(async (ctx) => {
       return await ctx.db.insert('messages', {
         chatId,
         role: 'user',

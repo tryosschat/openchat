@@ -1091,7 +1091,7 @@ describe('getFileUrl - Basic Functionality', () => {
 	let t: ReturnType<typeof convexTest>;
 	let userId: Id<'users'>;
 	let chatId: Id<'chats'>;
-	let fileId: Id<'fileUploads'>;
+	let _fileId: Id<'fileUploads'>;
 	let storageId: Id<'_storage'>;
 
 	beforeEach(async () => {
@@ -1133,7 +1133,7 @@ describe('getFileUrl - Basic Functionality', () => {
 	});
 
 	it('should return null for deleted file', async () => {
-		fileId = await t.run(async (ctx) => {
+		_fileId = await t.run(async (ctx) => {
 			return await ctx.db.insert('fileUploads', {
 				userId,
 				chatId,
@@ -1166,7 +1166,7 @@ describe('getFileUrl - Basic Functionality', () => {
 			});
 		});
 
-		fileId = await t.run(async (ctx) => {
+		_fileId = await t.run(async (ctx) => {
 			return await ctx.db.insert('fileUploads', {
 				userId: otherUserId,
 				chatId,

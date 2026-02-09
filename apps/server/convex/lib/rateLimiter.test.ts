@@ -12,7 +12,7 @@
  */
 
 import { convexTest } from "convex-test";
-import { expect, test, describe, vi, beforeEach, afterEach } from "vitest";
+import { expect, test, describe } from "vitest";
 import { api } from "../_generated/api";
 import schema from "../schema";
 import { modules, rateLimiter } from '../testSetup.test';
@@ -411,7 +411,7 @@ describe.skip("rateLimiter - edge cases", () => {
 
 		// Make requests sequentially (not in parallel)
 		let successCount = 0;
-		let errorCount = 0;
+		let _errorCount = 0;
 
 		for (let i = 0; i < 10; i++) {
 			try {
@@ -422,8 +422,8 @@ describe.skip("rateLimiter - edge cases", () => {
 					template: "Content",
 				});
 				successCount++;
-			} catch (error) {
-				errorCount++;
+			} catch {
+				_errorCount++;
 			}
 		}
 
@@ -507,7 +507,7 @@ describe.skip("rateLimiter - configuration validation", () => {
 					externalId: `user_config_${i}`,
 				});
 				successCount++;
-			} catch (error) {
+			} catch {
 				break;
 			}
 		}
@@ -533,7 +533,7 @@ describe.skip("rateLimiter - configuration validation", () => {
 					encryptedKey: `key_${i}`,
 				});
 				successCount++;
-			} catch (error) {
+			} catch {
 				break;
 			}
 		}

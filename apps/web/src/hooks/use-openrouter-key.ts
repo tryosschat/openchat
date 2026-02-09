@@ -7,5 +7,4 @@
 
 export { useOpenRouterKey, useOpenRouterStore } from "../stores/openrouter";
 
-// Re-export types for consumers
-export type {} from "../stores/openrouter";
+
