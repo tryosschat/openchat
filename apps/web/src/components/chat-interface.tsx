@@ -42,6 +42,7 @@ import {
 } from "./ai-elements/prompt-input";
 import { ConnectedModelSelector } from "./model-selector";
 import { StartScreen } from "./start-screen";
+import { UserMessageActions, AssistantMessageActions } from "@/components/message-actions";
 import type { UIDataTypes, UIMessagePart, UITools } from "ai";
 import type {PromptInputMessage} from "./ai-elements/prompt-input";
 import { cn } from "@/lib/utils";
@@ -1082,7 +1083,7 @@ const ChatMessageList = memo(function ChatMessageList({
 
               if (item.msg.messageType === "error" && item.msg.error) {
                 return (
-                  <div key={item.message.id}>
+                  <div key={item.message.id} className="group">
                     <Message from={item.message.role as "user" | "assistant"}>
                       <MessageContent>
                         <InlineErrorMessage error={item.msg.error} />
@@ -1093,7 +1094,7 @@ const ChatMessageList = memo(function ChatMessageList({
               }
 
               return (
-                <div key={item.message.id}>
+                <div key={item.message.id} className="group">
                   <Message from={item.message.role as "user" | "assistant"}>
                     <MessageContent>
                       {item.thinkingSteps.length > 0 && (
@@ -1128,6 +1129,19 @@ const ChatMessageList = memo(function ChatMessageList({
                         />
                       ))}
                     </MessageContent>
+                    {item.message.role === "user" ? (
+                      <UserMessageActions
+                        messageId={item.message.id}
+                        content={item.textParts.map((p) => p.text).join("")}
+                        isStreaming={item.isCurrentlyStreaming}
+                      />
+                    ) : (
+                      <AssistantMessageActions
+                        messageId={item.message.id}
+                        content={item.textParts.map((p) => p.text).join("")}
+                        isStreaming={item.isCurrentlyStreaming}
+                      />
+                    )}
                   </Message>
                 </div>
               );
