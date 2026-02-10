@@ -12,6 +12,7 @@ watchPatterns = [
 ]
 
 [deploy]
+startCommand = "HOST=0.0.0.0 PORT=${PORT:-3000} bun apps/web/.output/server/index.mjs"
 healthcheckPath = "/"
-healthcheckTimeout = 30
+healthcheckTimeout = 120
 restartPolicyType = "always"
