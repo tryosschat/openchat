@@ -16,6 +16,32 @@ apps/web/out
 
 # Convex local artifacts
 apps/server/.convex
+apps/server/**
+!apps/server/package.json
+!apps/server/convex/
+!apps/server/convex/_generated/
+!apps/server/convex/_generated/**
 
 # Misc
 .env.local
+.vercel
+.railway
+.sisyphus
+.playwright-mcp
+.next
+.turbo
+
+# Web local/build artifacts
+apps/web/.output
+apps/web/.tanstack
+apps/web/.vinxi
+apps/web/.nitro
+apps/web/dist
+apps/web/dist-ssr
+apps/web/count.txt
+apps/web/todos.json
+
+# Not needed for web service image context
+docs/**
+docs-site/**
+test/**

@@ -1,10 +1,17 @@
 [build]
-builder = "RAILPACK"
-buildCommand = "cd apps/web && bun run build"
-watchPatterns = ["apps/web/**", "apps/server/convex/**"]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/web.railway.Dockerfile"
+watchPatterns = [
+	"apps/web/**",
+	"apps/server/convex/_generated/**",
+	"bun.lock",
+	"bunfig.toml",
+	"docker/web.railway.Dockerfile",
+	"package.json",
+	"turbo.json",
+]
 
 [deploy]
-startCommand = "cd apps/web && bun .output/server/index.mjs"
 healthcheckPath = "/"
 healthcheckTimeout = 30
 restartPolicyType = "always"
