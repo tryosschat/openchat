@@ -9,6 +9,7 @@ import { getModelById, getModelCapabilities, useModelStore, useModels } from "@/
 import { useProviderStore } from "@/stores/provider";
 import { useChatTitleStore } from "@/stores/chat-title";
 import { useStreamStore } from "@/stores/stream";
+import { useUIStore } from "@/stores/ui";
 import { analytics } from "@/lib/analytics";
 
 interface ChatFileAttachment {
@@ -69,6 +70,15 @@ interface ConvexChainOfThoughtPart {
 	input?: unknown;
 	output?: unknown;
 	errorText?: string;
+}
+
+function messageFingerprint(message: UIMessage): string {
+	return JSON.stringify({
+		id: message.id,
+		role: message.role,
+		parts: message.parts,
+		metadata: message.metadata ?? null,
+	});
 }
 
 function isReasoningPart(part: unknown): part is ReasoningPartWithState {
@@ -263,6 +273,8 @@ export function usePersistentChat({
 	const { models } = useModels();
 	const activeProvider = useProviderStore((s) => s.activeProvider);
 	const webSearchEnabled = useProviderStore((s) => s.webSearchEnabled);
+	const jonMode = useUIStore((s) => s.jonMode);
+	const dynamicPrompt = useUIStore((s) => s.dynamicPrompt);
 	const chatTitleLength = useChatTitleStore((s) => s.length);
 	const setTitleGenerating = useChatTitleStore((s) => s.setGenerating);
 
@@ -326,26 +338,38 @@ export function usePersistentChat({
 		
 		setMessages((prevMessages) => {
 			const convexMessages = messagesResult.map(convexMessageToUIMessage);
-			
+			let nextMessages = convexMessages;
+
 			if (prevMessages.length === 0) {
-				return convexMessages;
-			}
-			
-			const lastPrev = prevMessages[prevMessages.length - 1];
-			const isLastPrevStreaming = lastPrev.id.startsWith("resume-") || 
-				(lastPrev.role === "assistant" && !messagesResult.find(m => m._id === lastPrev.id));
-			
-			if (isLastPrevStreaming && convexMessages.length > 0) {
-				const lastConvex = convexMessages[convexMessages.length - 1];
-				if (lastConvex.role === "assistant") {
-					return [
+				nextMessages = convexMessages;
+			} else {
+				const lastPrev = prevMessages[prevMessages.length - 1];
+				const isLastPrevStreaming = lastPrev.id.startsWith("resume-") || 
+					(lastPrev.role === "assistant" && !messagesResult.find(m => m._id === lastPrev.id));
+				
+				if (isLastPrevStreaming && convexMessages.length > 0) {
+					const lastConvex = convexMessages[convexMessages.length - 1];
+					if (lastConvex.role === "assistant") {
+						nextMessages = [
 						...convexMessages.slice(0, -1),
 						{ ...lastConvex, id: lastPrev.id }
 					];
+					}
 				}
 			}
-			
-			return convexMessages;
+
+			if (prevMessages.length === nextMessages.length) {
+				let changed = false;
+				for (let i = 0; i < prevMessages.length; i++) {
+					if (messageFingerprint(prevMessages[i]) !== messageFingerprint(nextMessages[i])) {
+						changed = true;
+						break;
+					}
+				}
+				if (!changed) return prevMessages;
+			}
+
+			return nextMessages;
 		});
 	}, [messagesResult, status]);
 
@@ -579,6 +603,8 @@ export function usePersistentChat({
 							enableReasoning: runtimeReasoningEnabled,
 							reasoningEffort: runtimeReasoningEffort,
 							enableWebSearch: webSearchEnabled,
+							jonMode,
+							dynamicPrompt,
 							supportsToolCalls: runtimeSupportsToolCalls,
 						},
 					});
@@ -709,6 +735,7 @@ export function usePersistentChat({
 			[
 				convexUserId, isUserLoading, user?.id, chatId, messages, models,
 				activeProvider, webSearchEnabled, chatTitleLength,
+				jonMode, dynamicPrompt,
 				setTitleGenerating, createChat, sendMessages, updateTitle, generateTitle, startBackgroundStream,
 				cleanupStaleJobs,
 			],
@@ -814,6 +841,8 @@ export function usePersistentChat({
 						enableReasoning: runtimeReasoningEnabled,
 						reasoningEffort: runtimeReasoningEffort,
 						enableWebSearch: webSearchEnabled,
+						jonMode,
+						dynamicPrompt,
 						supportsToolCalls: runtimeSupportsToolCalls,
 					},
 				});
@@ -860,6 +889,8 @@ export function usePersistentChat({
 			models,
 			activeProvider,
 			webSearchEnabled,
+			jonMode,
+			dynamicPrompt,
 			editAndRegenerate,
 			startBackgroundStream,
 			cleanupStaleJobs,
@@ -960,6 +991,8 @@ export function usePersistentChat({
 						enableReasoning: runtimeReasoningEnabled,
 						reasoningEffort: runtimeReasoningEffort,
 						enableWebSearch: webSearchEnabled,
+						jonMode,
+						dynamicPrompt,
 						supportsToolCalls: runtimeSupportsToolCalls,
 					},
 				});
@@ -1006,6 +1039,8 @@ export function usePersistentChat({
 			models,
 			activeProvider,
 			webSearchEnabled,
+			jonMode,
+			dynamicPrompt,
 			retryMessageMut,
 			startBackgroundStream,
 			cleanupStaleJobs,
@@ -1094,6 +1129,8 @@ export function usePersistentChat({
 						enableReasoning: runtimeReasoningEnabled,
 						reasoningEffort: runtimeReasoningEffort,
 						enableWebSearch: webSearchEnabled,
+						jonMode,
+						dynamicPrompt,
 						supportsToolCalls: runtimeSupportsToolCalls,
 					},
 				});
@@ -1113,6 +1150,8 @@ export function usePersistentChat({
 			models,
 			activeProvider,
 			webSearchEnabled,
+			jonMode,
+			dynamicPrompt,
 			forkChatMut,
 			cleanupStaleJobs,
 			startBackgroundStream,

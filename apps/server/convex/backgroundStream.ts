@@ -44,6 +44,32 @@ const MAX_SEARCH_SNIPPET_CHARS = 1000;
 const MAX_SEARCH_CONTEXT_CHARS = 8000;
 const MAX_COMBINED_SEARCH_CONTEXT_CHARS = 12000;
 const MAX_PREFETCH_SEARCHES = 5;
+const DYNAMIC_PROMPT_BASE = "You are a helpful assistant.";
+const JON_MODE_SYSTEM_PROMPT = `Write like a real person, not a language model.
+Voice:
+- Always use contractions (don't, can't, it's, won't, we're).
+- Vary sentence length dramatically. Short ones. Then longer ones that take their time.
+- Have opinions. "I think" and "honestly" are fine. Don't hedge everything into mush.
+- Match the user's energy. Casual if they're casual, precise if they're technical.
+- Choose unexpected words over obvious defaults. Use colloquialisms and idioms where they fit.
+Never do:
+- No sycophancy ("Great question!", "Absolutely!", "I'd be happy to", "Of course!").
+- No meta-commentary ("It's important to note", "Let me explain", "I hope this helps").
+- No hedging chains ("could potentially perhaps maybe").
+- No rhetorical questions or "not only...but also" constructions.
+- No rule-of-three lists ("fast, reliable, and scalable").
+- No summarizing conclusions or formulaic transitions ("Furthermore", "Moreover", "In summary").
+- No em dashes. Don't open by restating what the user said.
+Word choice:
+- If a simpler everyday word exists, use it. "Use" not "utilize". "Is" not "serves as". "Has" not "boasts".
+- Avoid words that sound like marketing copy, corporate speak, or LinkedIn posts. If it would fit in a press release or TED talk title, pick a different word.
+- Avoid vague abstract nouns where a concrete one works. Avoid inflated verbs where a plain one works.
+Structure:
+- Skip intro-body-conclusion. Start wherever makes sense, sometimes mid-thought.
+- Irregular paragraph lengths. One sentence alone is fine.
+- Use concrete details over generic statements.
+- Stop when done. No wrap-up. No "hope that helps."
+- Leave some thoughts slightly unpolished. Perfect structure feels algorithmic.`;
 
 function usageFromLanguageModelUsage(usage: {
 	inputTokens?: number;
@@ -271,6 +297,8 @@ export const startStream = mutation({
 			enableWebSearch: v.optional(v.boolean()),
 			supportsToolCalls: v.optional(v.boolean()),
 			maxSteps: v.optional(v.number()),
+			jonMode: v.optional(v.boolean()),
+			dynamicPrompt: v.optional(v.boolean()),
 		})),
 	},
 	returns: v.id("streamJobs"),
@@ -364,6 +392,8 @@ export const getStreamJob = query({
 				enableWebSearch: v.optional(v.boolean()),
 				supportsToolCalls: v.optional(v.boolean()),
 				maxSteps: v.optional(v.number()),
+				jonMode: v.optional(v.boolean()),
+				dynamicPrompt: v.optional(v.boolean()),
 			})),
 			content: v.string(),
 			reasoning: v.optional(v.string()),
@@ -428,6 +458,8 @@ export const getActiveStreamJob = query({
 				enableWebSearch: v.optional(v.boolean()),
 				supportsToolCalls: v.optional(v.boolean()),
 				maxSteps: v.optional(v.number()),
+				jonMode: v.optional(v.boolean()),
+				dynamicPrompt: v.optional(v.boolean()),
 			})),
 			content: v.string(),
 			reasoning: v.optional(v.string()),
@@ -881,14 +913,44 @@ export const executeStream = internalAction({
 			];
 		};
 
+		const addJonModeSystemInstruction = (
+			messages: Array<{ role: "user" | "assistant" | "system"; content: string }>
+		) => {
+			return [
+				{ role: "system" as const, content: JON_MODE_SYSTEM_PROMPT },
+				...messages,
+			];
+		};
+
+		const addDynamicPromptSystemInstruction = (
+			messages: Array<{ role: "user" | "assistant" | "system"; content: string }>
+		) => {
+			return [
+				{
+					role: "system" as const,
+					content: `${DYNAMIC_PROMPT_BASE} Your model name is ${job.model}.`,
+				},
+				...messages,
+			];
+		};
+
 		let webSearchMode: "none" | "tool" | "unavailable" = "none";
 
 		const getFinalMessages = (
 			messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
 			webSearchEnabled: boolean,
 		) => {
-			if (!webSearchEnabled) return messages;
-			return addWebSearchSystemInstruction(messages);
+			let result = messages;
+			if (job.options?.jonMode) {
+				result = addJonModeSystemInstruction(result);
+			}
+			if (job.options?.dynamicPrompt ?? true) {
+				result = addDynamicPromptSystemInstruction(result);
+			}
+			if (webSearchEnabled) {
+				result = addWebSearchSystemInstruction(result);
+			}
+			return result;
 		};
 
 			const getThinkingTimeSec = () => {
@@ -1037,6 +1099,7 @@ export const executeStream = internalAction({
 			const supportsToolCalls = job.options?.supportsToolCalls !== false;
 			let webSearchUnavailableReason: string | null = null;
 			let availableSearches = 0;
+			let finalMessagesApplied = false;
 
 			if (webSearchRequested) {
 				const searchLimit = await ctx.runQuery(internal.search.checkSearchLimitInternal, {
@@ -1150,7 +1213,15 @@ export const executeStream = internalAction({
 							false,
 						)),
 					];
+					finalMessagesApplied = true;
 				}
+			}
+
+			if (!finalMessagesApplied) {
+				streamOptions.messages = getFinalMessages(
+					streamOptions.messages as Array<{ role: "user" | "assistant" | "system"; content: string }>,
+					webSearchRequested && webSearchMode !== "tool" && webSearchMode !== "unavailable",
+				);
 			}
 				const configuredMaxSteps =
 					typeof job.options?.maxSteps === "number" ? job.options.maxSteps : undefined;
