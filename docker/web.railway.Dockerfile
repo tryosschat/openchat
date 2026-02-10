@@ -24,10 +24,13 @@ FROM oven/bun:1.3.0 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
+# HOST must be 0.0.0.0 so the server binds all interfaces inside the container.
+# Do NOT set PORT or EXPOSE here — Railway injects its own PORT at runtime and
+# uses that same value for healthcheck probes. Hardcoding PORT in the Dockerfile
+# causes a mismatch where Nitro binds to Railway's dynamic port but the
+# healthcheck probes the Dockerfile's static port, resulting in "service unavailable".
 ENV HOST=0.0.0.0
 
 COPY --from=builder /app/apps/web/.output ./apps/web/.output
 
-EXPOSE 3000
 CMD ["bun", "apps/web/.output/server/index.mjs"]
