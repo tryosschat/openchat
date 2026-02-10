@@ -1,7 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { json } from "@tanstack/react-start";
 import { redis } from "@/lib/redis";
-import { getAuthUser, getConvexUserId, isSameOrigin } from "@/lib/server-auth";
+import { api } from "@server/convex/_generated/api";
+import type { Id } from "@server/convex/_generated/dataModel";
+import {
+	getAuthUser,
+	getConvexClientForRequest,
+	getConvexUserIdReadOnly,
+	isSameOrigin,
+} from "@/lib/server-auth";
 
 export const Route = createFileRoute("/api/typing")({
 	server: {
@@ -15,7 +22,11 @@ export const Route = createFileRoute("/api/typing")({
 					if (!authUser) {
 						return json({ error: "Unauthorized" }, { status: 401 });
 					}
-					const convexUserId = await getConvexUserId(authUser, request);
+					const convexClient = await getConvexClientForRequest(request);
+					if (!convexClient) {
+						return json({ error: "Unauthorized" }, { status: 401 });
+					}
+					const convexUserId = await getConvexUserIdReadOnly(authUser, convexClient);
 					if (!convexUserId) {
 						return json({ error: "Unauthorized" }, { status: 401 });
 					}
@@ -25,6 +36,15 @@ export const Route = createFileRoute("/api/typing")({
 
 					if (!chatId) {
 						return json({ error: "chatId required" }, { status: 400 });
+					}
+
+					// Verify user owns the chat before allowing typing status update
+					const chat = await convexClient.query(api.chats.get, {
+						chatId: chatId as Id<"chats">,
+						userId: convexUserId,
+					});
+					if (!chat) {
+						return json({ error: "Forbidden" }, { status: 403 });
 					}
 
 					if (!redis.isAvailable()) {
@@ -39,26 +59,48 @@ export const Route = createFileRoute("/api/typing")({
 			},
 
 			GET: async ({ request }) => {
-				if (!isSameOrigin(request)) {
-					return json({ error: "Invalid origin" }, { status: 403 });
-				}
-				const authUser = await getAuthUser(request);
-				if (!authUser) {
-					return json({ error: "Unauthorized" }, { status: 401 });
-				}
-				const url = new URL(request.url);
-				const chatId = url.searchParams.get("chatId");
+				try {
+					if (!isSameOrigin(request)) {
+						return json({ error: "Invalid origin" }, { status: 403 });
+					}
+					const authUser = await getAuthUser(request);
+					if (!authUser) {
+						return json({ error: "Unauthorized" }, { status: 401 });
+					}
+					const convexClient = await getConvexClientForRequest(request);
+					if (!convexClient) {
+						return json({ error: "Unauthorized" }, { status: 401 });
+					}
+					const convexUserId = await getConvexUserIdReadOnly(authUser, convexClient);
+					if (!convexUserId) {
+						return json({ error: "Unauthorized" }, { status: 401 });
+					}
 
-				if (!chatId) {
-					return json({ error: "chatId required" }, { status: 400 });
-				}
+					const url = new URL(request.url);
+					const chatId = url.searchParams.get("chatId");
 
-				if (!redis.isAvailable()) {
-					return json({ users: [] });
-				}
+					if (!chatId) {
+						return json({ error: "chatId required" }, { status: 400 });
+					}
 
-				const users = await redis.typing.getUsers(chatId);
-				return json({ users });
+					// Verify user owns the chat before allowing typing status read
+					const chat = await convexClient.query(api.chats.get, {
+						chatId: chatId as Id<"chats">,
+						userId: convexUserId,
+					});
+					if (!chat) {
+						return json({ error: "Forbidden" }, { status: 403 });
+					}
+
+					if (!redis.isAvailable()) {
+						return json({ users: [] });
+					}
+
+					const users = await redis.typing.getUsers(chatId);
+					return json({ users });
+				} catch {
+					return json({ error: "Failed to get typing status" }, { status: 500 });
+				}
 			},
 		},
 	},
