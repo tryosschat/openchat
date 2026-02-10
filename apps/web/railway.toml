@@ -11,6 +11,9 @@ watchPatterns = [
 	"bun.lock",
 	"bunfig.toml",
 	"turbo.json",
+	".dockerignore",
+	".railpackignore",
+	"railpack.json",
 ]
 
 [deploy]
