@@ -495,10 +495,34 @@ function ChainOfThought({
   );
 }
 
-// Helper to replace UTM source in URLs with osschat.dev
-function replaceUtmSource(url: string): string {
+// Allowed URL schemes for search result links (security: prevent XSS via javascript:/data: URLs)
+const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
+
+// Validates and sanitizes a URL, returning null if the URL is invalid or uses a disallowed scheme
+function getSafeUrl(url: string): string | null {
   try {
     const urlObj = new URL(url);
+    // Only allow http and https schemes to prevent XSS/phishing via javascript:, data:, etc.
+    if (!ALLOWED_URL_SCHEMES.has(urlObj.protocol)) {
+      return null;
+    }
+    return urlObj.toString();
+  } catch {
+    // If URL parsing fails, it's not a valid URL
+    return null;
+  }
+}
+
+// Helper to replace UTM source in URLs with osschat.dev
+// Returns null if the URL is invalid or uses a disallowed scheme
+function replaceUtmSource(url: string): string | null {
+  const safeUrl = getSafeUrl(url);
+  if (!safeUrl) {
+    return null;
+  }
+  
+  try {
+    const urlObj = new URL(safeUrl);
     // Replace any existing utm_source with osschat.dev
     if (urlObj.searchParams.has("utm_source")) {
       urlObj.searchParams.set("utm_source", "osschat.dev");
@@ -509,8 +533,8 @@ function replaceUtmSource(url: string): string {
     }
     return urlObj.toString();
   } catch {
-    // If URL parsing fails, return original
-    return url;
+    // If URL parsing fails after validation, return the safe URL
+    return safeUrl;
   }
 }
 
@@ -555,23 +579,29 @@ function SearchResultsDisplay({ results, isExpanded }: { results: unknown; isExp
   // When expanded, show full results
   return (
     <div className="space-y-2">
-      {searchResults.slice(0, 5).map((result: any, i: number) => (
+      {searchResults.slice(0, 5).map((result: any, i: number) => {
+        // Validate and sanitize the URL - returns null if unsafe (javascript:, data:, etc.)
+        const rawUrl = result.url || result.link;
+        const safeUrl = rawUrl ? replaceUtmSource(rawUrl) : null;
+        const displayTitle = result.title || result.name || rawUrl || "Result";
+        
+        return (
         <div key={i} className="p-2 rounded-md bg-muted/30 border border-border/50">
           <div className="flex items-start gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 flex-shrink-0" />
             <div className="flex-1 min-w-0">
-              {result.url || result.link ? (
+              {safeUrl ? (
                 <a
-                  href={replaceUtmSource(result.url || result.link)}
+                  href={safeUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs font-medium text-primary hover:underline line-clamp-1"
                 >
-                  {result.title || result.name || result.url || result.link}
+                  {displayTitle}
                 </a>
               ) : (
                 <span className="text-xs font-medium text-foreground line-clamp-1">
-                  {result.title || result.name || "Result"}
+                  {displayTitle}
                 </span>
               )}
               {(result.description || result.snippet || result.content) && (
@@ -582,7 +612,8 @@ function SearchResultsDisplay({ results, isExpanded }: { results: unknown; isExp
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
       {searchResults.length > 5 && (
         <p className="text-xs text-muted-foreground">
           +{String(searchResults.length - 5)} more results
