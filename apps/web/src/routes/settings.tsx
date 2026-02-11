@@ -2,12 +2,12 @@
  * Settings Page
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@server/convex/_generated/api";
 import { CheckCircleIcon, CheckIcon, DatabaseIcon, Loader2Icon, PencilIcon, RefreshCwIcon, XIcon, ZapIcon } from "lucide-react";
-import type {KeyboardEvent, MouseEvent} from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
 import type {ChatTitleLength} from "@/stores/chat-title";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -18,11 +18,26 @@ import { DAILY_LIMIT_CENTS, isPreviewDeployment, useProviderStore } from "@/stor
 import { getCacheStatus, useModels } from "@/stores/model";
 import { useChatTitleStore } from "@/stores/chat-title";
 import { useUIStore } from "@/stores/ui";
+import { useShortcutsStore } from "@/stores/shortcuts";
 import { OpenRouterConnectModal } from "@/components/openrouter-connect-modal";
 import { DeleteAccountModal } from "@/components/delete-account-modal";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import {
+  SHORTCUT_CATEGORIES,
+  SHORTCUT_DEFINITIONS,
+  bindingHasModifier,
+  bindingToTokens,
+  eventToBinding,
+  getConflictingShortcutIds,
+  getEffectiveBinding,
+  getShortcutById,
+  isMacPlatform,
+  isReservedShortcutBinding,
+  normalizeBinding,
+  type ShortcutActionId,
+} from "@/lib/shortcuts";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -34,13 +49,14 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
-type Section = "account" | "providers" | "chat" | "models";
+type Section = "account" | "providers" | "chat" | "models" | "shortcuts";
 
 const sections: Array<{ id: Section; label: string }> = [
   { id: "account", label: "Account" },
   { id: "providers", label: "Providers" },
   { id: "chat", label: "Chat" },
   { id: "models", label: "Models" },
+  { id: "shortcuts", label: "Shortcuts" },
 ];
 
 function SettingsPage() {
@@ -134,6 +150,7 @@ function SettingsPage() {
           {activeSection === "providers" && <ProvidersSection />}
           {activeSection === "chat" && <ChatSection />}
           {activeSection === "models" && <ModelsSection />}
+          {activeSection === "shortcuts" && <ShortcutsSection />}
         </div>
       </main>
     </div>
@@ -143,7 +160,7 @@ function SettingsPage() {
 function AccountSection({
 	user,
 	refetchSession,
-}: { user: { id: string; name?: string | null; email?: string | null }; refetchSession: () => Promise<void> }) {
+}: { user: { id: string; name?: string | null; email?: string | null }; refetchSession: () => Promise<unknown> }) {
 	const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [nameValue, setNameValue] = useState(user.name || "");
@@ -617,7 +634,7 @@ function ChatSection() {
     handleClick(Math.max(0, Math.min(index, TITLE_LENGTH_OPTIONS.length - 1)));
   };
 
-  const handleTrackKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const handleTrackKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const lastIndex = TITLE_LENGTH_OPTIONS.length - 1;
     let nextIndex = currentIndex;
 
@@ -766,6 +783,170 @@ function ChatSection() {
             />
           </div>
         </div>
+      </section>
+    </div>
+  );
+}
+
+const MODIFIER_TOKENS = new Set(["meta", "ctrl", "alt", "shift"]);
+
+function ShortcutsSection() {
+  const bindings = useShortcutsStore((state) => state.bindings);
+  const setBinding = useShortcutsStore((state) => state.setBinding);
+  const resetBinding = useShortcutsStore((state) => state.resetBinding);
+  const resetAllBindings = useShortcutsStore((state) => state.resetAllBindings);
+
+  const [recordingId, setRecordingId] = useState<ShortcutActionId | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+
+  const isMac = useMemo(() => isMacPlatform(), []);
+
+  const groupedShortcuts = useMemo(() => {
+    return SHORTCUT_CATEGORIES.map(({ id, label }) => ({
+      category: id,
+      label,
+      items: SHORTCUT_DEFINITIONS.filter((shortcut) => shortcut.category === id),
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (!recordingId) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === "Escape") {
+        setRecordingId(null);
+        setCaptureError(null);
+        return;
+      }
+
+      const pressed = eventToBinding(event);
+      const normalized = normalizeBinding(pressed);
+      if (!normalized) return;
+
+      const hasPrimaryKey = normalized
+        .split("+")
+        .some((token) => token && !MODIFIER_TOKENS.has(token));
+
+      if (!hasPrimaryKey) {
+        setCaptureError("Press a full shortcut, not only modifier keys.");
+        return;
+      }
+
+      if (!bindingHasModifier(normalized) && normalized !== "escape") {
+        setCaptureError("Shortcuts need at least one modifier key (Ctrl/Cmd, Alt, Shift).");
+        return;
+      }
+
+      if (isReservedShortcutBinding(normalized)) {
+        setCaptureError("That shortcut is reserved by the browser. Pick another one.");
+        return;
+      }
+
+      const conflicts = getConflictingShortcutIds(recordingId, normalized, bindings, isMac);
+      if (conflicts.length > 0) {
+        const conflictLabel = getShortcutById(conflicts[0])?.label ?? "another shortcut";
+        setCaptureError(`Already used by "${conflictLabel}".`);
+        return;
+      }
+
+      setBinding(recordingId, normalized);
+      setCaptureError(null);
+      setRecordingId(null);
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [bindings, isMac, recordingId, setBinding]);
+
+  return (
+    <div className="space-y-8">
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            Keyboard Shortcuts
+          </h2>
+          <Button variant="outline" size="sm" onClick={resetAllBindings}>
+            Reset all
+          </Button>
+        </div>
+
+        <div className="rounded-xl border bg-card p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Click any shortcut to remap it. Press Escape to cancel recording.
+          </p>
+          {captureError && <p className="text-sm text-destructive">{captureError}</p>}
+        </div>
+
+        {groupedShortcuts.map((group) => (
+          <div key={group.category} className="space-y-2">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {group.label}
+            </h3>
+            <div className="rounded-xl border bg-card divide-y divide-border">
+              {group.items.map((shortcut) => {
+                const effectiveBinding = getEffectiveBinding(shortcut, bindings, isMac);
+                const tokens = bindingToTokens(effectiveBinding, isMac);
+                const isRecording = recordingId === shortcut.id;
+                const hasOverride = Boolean(bindings[shortcut.id]);
+
+                return (
+                  <div key={shortcut.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{shortcut.label}</p>
+                      <p className="text-xs text-muted-foreground">{shortcut.description}</p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant={isRecording ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => {
+                          setCaptureError(null);
+                          setRecordingId(isRecording ? null : shortcut.id);
+                        }}
+                      >
+                        {isRecording ? "Press keys..." : "Change"}
+                      </Button>
+
+                      <div className="flex items-center gap-1 min-w-[140px] justify-end">
+                        {tokens.length > 0 ? (
+                          tokens.map((token, index) => (
+                            <kbd
+                              key={`${shortcut.id}-${token}-${index}`}
+                              className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-border bg-muted px-1.5 font-mono text-caption font-medium text-muted-foreground"
+                            >
+                              {token}
+                            </kbd>
+                          ))
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not set</span>
+                        )}
+                      </div>
+
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!hasOverride}
+                        onClick={() => {
+                          if (isRecording) {
+                            setRecordingId(null);
+                            setCaptureError(null);
+                          }
+                          resetBinding(shortcut.id);
+                        }}
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </section>
     </div>
   );

@@ -64,6 +64,10 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { usePersistentChat } from "@/hooks/use-persistent-chat";
+import {
+	SHORTCUT_EVENT_FOCUS_PROMPT_TOGGLE,
+	SHORTCUT_EVENT_STOP_GENERATION,
+} from "@/lib/shortcuts";
 
 function useIsMac() {
   const [isMac, setIsMac] = useState(true);
@@ -1297,38 +1301,40 @@ function ChatInterfaceContent({
     setIsSavingEdit(false);
   }, [chatId]);
 
-  // Cmd+L / Ctrl+L keybind to toggle focus on prompt input
+  // Global shortcuts dispatch custom events consumed here.
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && editingMessageId) {
-        e.preventDefault();
-        cancelEdit();
-        return;
-      }
-      // Check for Cmd+L (Mac) or Ctrl+L (Windows/Linux)
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
-        e.preventDefault();
+		const onFocusPromptToggle = () => {
+			const textarea = textareaRef.current;
+			if (!textarea) return;
 
-        const textarea = textareaRef.current;
-        if (!textarea) return;
+			const isTextareaFocused =
+				document.activeElement === textarea || textarea.contains(document.activeElement as Node);
 
-        // Toggle: if textarea is focused (or contains focus), blur; otherwise focus
-        const isTextareaFocused =
-          document.activeElement === textarea || textarea.contains(document.activeElement as Node);
+			if (isTextareaFocused) {
+				textarea.blur();
+				const activeElement = document.activeElement;
+				if (activeElement instanceof HTMLElement) {
+					activeElement.blur();
+				}
+				return;
+			}
 
-        if (isTextareaFocused) {
-          textarea.blur();
-          // Also blur the document to ensure we're not stuck in the input
-          (document.activeElement as HTMLElement).blur();
-        } else {
-          textarea.focus();
-        }
-      }
-    };
+			textarea.focus();
+		};
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [textareaRef, editingMessageId]);
+		const onStopGeneration = () => {
+			if (!isLoading) return;
+			stop();
+		};
+
+		window.addEventListener(SHORTCUT_EVENT_FOCUS_PROMPT_TOGGLE, onFocusPromptToggle);
+		window.addEventListener(SHORTCUT_EVENT_STOP_GENERATION, onStopGeneration);
+
+		return () => {
+			window.removeEventListener(SHORTCUT_EVENT_FOCUS_PROMPT_TOGGLE, onFocusPromptToggle);
+			window.removeEventListener(SHORTCUT_EVENT_STOP_GENERATION, onStopGeneration);
+		};
+	}, [isLoading, stop, textareaRef]);
 
   // Handler for StartScreen prompt selection - populates input and focuses
   const setInput = controller.textInput.setInput;
@@ -1361,6 +1367,19 @@ function ChatInterfaceContent({
     setInput(savedDraftRef.current);
     savedDraftRef.current = "";
   }, [setInput]);
+
+  // Escape closes message edit mode.
+  useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape" && editingMessageId) {
+				e.preventDefault();
+				cancelEdit();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, [cancelEdit, editingMessageId]);
 
   const handleSubmitWithDraftClear = useCallback(
     async (message: PromptInputMessage) => {
