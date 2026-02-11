@@ -583,7 +583,7 @@ function SearchResultsDisplay({ results, isExpanded }: { results: unknown; isExp
         // Validate and sanitize the URL - returns null if unsafe (javascript:, data:, etc.)
         const rawUrl = result.url || result.link;
         const safeUrl = rawUrl ? replaceUtmSource(rawUrl) : null;
-        const displayTitle = result.title || result.name || rawUrl || "Result";
+        const displayTitle = result.title || result.name || (safeUrl ? rawUrl : null) || "Result";
         
         return (
         <div key={i} className="p-2 rounded-md bg-muted/30 border border-border/50">
