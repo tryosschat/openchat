@@ -20,9 +20,10 @@ import type {ReactNode} from "react";
 /**
  * In-memory-only storage adapter for session data.
  *
- * SECURITY: Session tokens are stored ONLY in memory, never in localStorage.
- * This mitigates XSS token theft since injected scripts cannot access in-memory
- * variables. The actual session is maintained via HttpOnly cookies on the server.
+ * This reduces XSS token theft risk since tokens are no longer persisted in localStorage
+ * (a well-known, trivially accessible target for injected scripts). While in-memory storage
+ * is not immune to XSS, it eliminates persistence and narrows the attack surface.
+ * The actual session is maintained via HttpOnly cookies on the server.
  *
  * This also prevents the infinite loop caused by crossDomainClient's $sessionSignal
  * notification by deduplicating writes when the value hasn't changed.
@@ -54,8 +55,9 @@ const inMemoryStorage = {
 /**
  * Better Auth client with Convex integration
  *
- * SECURITY: Uses in-memory-only storage to prevent XSS token theft.
- * Session tokens are never written to localStorage or sessionStorage.
+ * SECURITY: Uses in-memory-only storage to reduce XSS token theft risk.
+ * Session tokens are never written to localStorage or sessionStorage,
+ * eliminating persistence and narrowing the attack surface.
  * The actual authentication is maintained via HttpOnly, Secure, SameSite cookies
  * which are inaccessible to JavaScript.
  *

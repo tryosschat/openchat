@@ -82,7 +82,7 @@ export const createStream = mutation({
  * 2. The message status tells us if streaming is still in progress
  * We use the message's status (not "done") to determine the correct streaming state.
  */
-export const getStreamBody = query({
+export const getStreamBody = internalQuery({
 	args: {
 		streamId: StreamIdValidator,
 	},
@@ -145,7 +145,7 @@ export const getStreamMessage = internalQuery({
 /**
  * Get stream status and content by querying the associated message
  */
-export const getStreamStatus = query({
+export const getStreamStatus = internalQuery({
 	args: {
 		streamId: v.string(),
 	},
@@ -248,7 +248,7 @@ export const cancelStream = mutation({
 /**
  * Check if a stream has been cancelled (internal query for streamLLM)
  */
-export const isStreamCancelled = query({
+export const isStreamCancelled = internalQuery({
 	args: {
 		streamId: v.string(),
 	},
@@ -748,7 +748,7 @@ export const streamLLM = httpAction(async (ctx, request) => {
 				const now = Date.now();
 				if (now - lastCancellationCheck >= CANCELLATION_CHECK_INTERVAL_MS) {
 					lastCancellationCheck = now;
-					const cancelled = await actionCtx.runQuery(api.streaming.isStreamCancelled, {
+					const cancelled = await actionCtx.runQuery(internal.streaming.isStreamCancelled, {
 						streamId: streamId,
 					});
 					if (cancelled) {
