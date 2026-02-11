@@ -6,6 +6,42 @@ import { cn } from "@/lib/utils"
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const
 
+// Regex patterns for sanitizing CSS values to prevent injection attacks
+// Matches valid CSS custom property names (alphanumeric, hyphens, underscores)
+const SAFE_CSS_KEY_PATTERN = /^[a-zA-Z0-9_-]+$/
+// Matches valid CSS color formats: hex, rgb, rgba, hsl, hsla, named colors, oklch, oklab, color()
+const SAFE_CSS_COLOR_PATTERN =
+	/^(#[0-9a-fA-F]{3,8}|rgba?\(\s*[\d.%,\s]+\)|hsla?\(\s*[\d.%,\s/]+\)|oklch\(\s*[\d.%,\s/]+\)|oklab\(\s*[\d.%,\s/]+\)|color\(\s*[a-zA-Z0-9\s/.%-]+\)|[a-zA-Z]+|var\(--[a-zA-Z0-9_-]+\))$/
+
+/**
+ * Sanitizes a CSS custom property key to prevent injection
+ * Returns null if the key is invalid
+ */
+function sanitizeCssKey(key: string): string | null {
+	if (typeof key !== "string" || !SAFE_CSS_KEY_PATTERN.test(key)) {
+		console.warn(`[ChartStyle] Invalid CSS key rejected: ${key}`)
+		return null
+	}
+	return key
+}
+
+/**
+ * Sanitizes a CSS color value to prevent injection
+ * Returns null if the color is invalid
+ */
+function sanitizeCssColor(color: string): string | null {
+	if (typeof color !== "string") {
+		return null
+	}
+	// Trim whitespace and check against pattern
+	const trimmed = color.trim()
+	if (!SAFE_CSS_COLOR_PATTERN.test(trimmed)) {
+		console.warn(`[ChartStyle] Invalid CSS color rejected: ${color}`)
+		return null
+	}
+	return trimmed
+}
+
 export type ChartConfig = {
   [k in string]: {
     label?: React.ReactNode
@@ -76,28 +112,46 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null
   }
 
-  return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
-${colorConfig
-  .map(([key, itemConfig]) => {
-    const color =
-      itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
-      itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
-  })
-  .join("\n")}
-}
-`
-          )
-          .join("\n"),
-      }}
-    />
-  )
+  // Build CSS variables safely with sanitization
+  const cssContent = React.useMemo(() => {
+    // Sanitize the ID to prevent selector injection
+    const sanitizedId = id.replace(/[^a-zA-Z0-9_-]/g, "")
+    if (sanitizedId !== id) {
+      console.warn(`[ChartStyle] Chart ID sanitized from "${id}" to "${sanitizedId}"`)
+    }
+
+    return Object.entries(THEMES)
+      .map(([theme, prefix]) => {
+        const variables = colorConfig
+          .map(([key, itemConfig]) => {
+            const sanitizedKey = sanitizeCssKey(key)
+            if (!sanitizedKey) return null
+
+            const rawColor =
+              itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
+              itemConfig.color
+            if (!rawColor) return null
+
+            const sanitizedColor = sanitizeCssColor(rawColor)
+            if (!sanitizedColor) return null
+
+            return `  --color-${sanitizedKey}: ${sanitizedColor};`
+          })
+          .filter(Boolean)
+          .join("\n")
+
+        if (!variables) return null
+        return `${prefix} [data-chart="${sanitizedId}"] {\n${variables}\n}`
+      })
+      .filter(Boolean)
+      .join("\n")
+  }, [id, colorConfig])
+
+  if (!cssContent) {
+    return null
+  }
+
+  return <style>{cssContent}</style>
 }
 
 const ChartTooltip = RechartsPrimitive.Tooltip
