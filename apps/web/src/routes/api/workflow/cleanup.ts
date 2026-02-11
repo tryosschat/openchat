@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import { json } from "@tanstack/react-start";
 import { serve } from "@upstash/workflow/tanstack";
@@ -54,8 +53,12 @@ function parseCleanupPayload(raw: unknown): CleanupPayload | null {
 function safeCompare(a: string, b: string): boolean {
 	const bufA = Buffer.from(a);
 	const bufB = Buffer.from(b);
-	if (bufA.length !== bufB.length) return false;
-	return timingSafeEqual(bufA, bufB);
+	let mismatch = bufA.length ^ bufB.length;
+	const len = Math.max(bufA.length, bufB.length);
+	for (let i = 0; i < len; i++) {
+		mismatch |= (bufA[i] || 0) ^ (bufB[i] || 0);
+	}
+	return mismatch === 0;
 }
 
 function hasValidCleanupToken(headers: Headers): boolean {
@@ -235,10 +238,6 @@ export const Route = createFileRoute("/api/workflow/cleanup")({
 					const triggerHeaders: Record<string, string> = {
 						"Content-Type": "application/json",
 					};
-					const workflowToken = process.env.WORKFLOW_CLEANUP_TOKEN?.trim();
-					if (workflowToken) {
-						triggerHeaders.authorization = `Bearer ${workflowToken}`;
-					}
 
 					const { workflowRunId } = await workflowClient.trigger({
 						url: request.url,

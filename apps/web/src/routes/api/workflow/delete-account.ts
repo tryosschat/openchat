@@ -5,7 +5,7 @@ import { api } from "@server/convex/_generated/api";
 import type { Id } from "@server/convex/_generated/dataModel";
 import { createConvexServerClient } from "@/lib/convex-server";
 import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth";
-import { upstashRedis, workflowClient } from "@/lib/upstash";
+import { authRatelimit, upstashRedis, workflowClient } from "@/lib/upstash";
 
 const CONVEX_SITE_URL =
 	process.env.VITE_CONVEX_SITE_URL || process.env.CONVEX_SITE_URL;
@@ -21,6 +21,8 @@ type DeleteStep =
 	| "delete-messages"
 	| "delete-chats"
 	| "delete-files";
+
+const MAX_DELETE_BATCHES = 500;
 
 async function getAuthTokenFromWorkflowHeaders(headers: Headers): Promise<string | null> {
 	if (!CONVEX_SITE_URL) return null;
@@ -133,8 +135,10 @@ async function runDeleteAccountInline(
 
 	const runBatchStep = async (step: DeleteStep) => {
 		let totalDeleted = 0;
+		let iteration = 0;
 
-		while (true) {
+		while (iteration < MAX_DELETE_BATCHES) {
+			iteration += 1;
 			const result = await convexClient.action(api.users.deleteAccountWorkflowStep, {
 				userId: convexUserId,
 				externalId,
@@ -190,7 +194,7 @@ const workflow = serve<DeleteAccountPayload>(async (context) => {
 		let totalDeleted = 0;
 		let iteration = 0;
 
-		while (true) {
+		while (iteration < MAX_DELETE_BATCHES) {
 			iteration += 1;
 			const result = await context.run(`${stepName}-${iteration}`, async () => {
 				return convexClient.action(api.users.deleteAccountWorkflowStep, {
@@ -266,6 +270,13 @@ export const Route = createFileRoute("/api/workflow/delete-account")({
 				});
 				if (!authConvexUser?._id) {
 					return json({ error: "Unauthorized" }, { status: 401 });
+				}
+
+				if (authRatelimit) {
+					const rl = await authRatelimit.limit(`delete-account:${authConvexUser._id}`);
+					if (!rl.success) {
+						return json({ error: "Rate limit exceeded" }, { status: 429 });
+					}
 				}
 
 				let payloadRaw: unknown;

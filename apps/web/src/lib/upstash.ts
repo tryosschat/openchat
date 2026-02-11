@@ -29,8 +29,6 @@ function createSlidingWindowRatelimit(
 }
 
 export const chatUserRatelimit = createSlidingWindowRatelimit(30, "60 s", "ratelimit:chat:user");
-export const chatIpRatelimit = createSlidingWindowRatelimit(60, "60 s", "ratelimit:chat:ip");
-export const chatRatelimit = chatUserRatelimit;
 export const uploadRatelimit = createSlidingWindowRatelimit(20, "60 s", "ratelimit:upload:user");
 export const exportRatelimit = createSlidingWindowRatelimit(10, "60 s", "ratelimit:export:user");
 export const authRatelimit = createSlidingWindowRatelimit(20, "60 s", "ratelimit:auth:user");

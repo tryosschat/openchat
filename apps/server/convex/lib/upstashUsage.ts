@@ -18,6 +18,9 @@ function usageCounterKey(userId: string, dateKey: string): string {
 function getMidnightUtcEpochSeconds(dateKey: string): number {
 	const [year, month, day] = dateKey.split("-").map((segment) => Number.parseInt(segment, 10));
 	const expiresAtMs = Date.UTC(year, month - 1, day + 1, 0, 0, 0, 0);
+	if (!Number.isFinite(expiresAtMs)) {
+		throw new Error(`Invalid dateKey: ${dateKey}`);
+	}
 	return Math.floor(expiresAtMs / 1000);
 }
 

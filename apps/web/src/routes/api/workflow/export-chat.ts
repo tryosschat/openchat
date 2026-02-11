@@ -5,7 +5,7 @@ import { api } from "@server/convex/_generated/api";
 import type { Id } from "@server/convex/_generated/dataModel";
 import { createConvexServerClient } from "@/lib/convex-server";
 import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth";
-import { workflowClient } from "@/lib/upstash";
+import { exportRatelimit, workflowClient } from "@/lib/upstash";
 
 const CONVEX_SITE_URL =
 	process.env.VITE_CONVEX_SITE_URL || process.env.CONVEX_SITE_URL;
@@ -232,6 +232,13 @@ export const Route = createFileRoute("/api/workflow/export-chat")({
 				});
 				if (!authConvexUser?._id) {
 					return json({ error: "Unauthorized" }, { status: 401 });
+				}
+
+				if (exportRatelimit) {
+					const rl = await exportRatelimit.limit(`export-chat:${authConvexUser._id}`);
+					if (!rl.success) {
+						return json({ error: "Rate limit exceeded" }, { status: 429 });
+					}
 				}
 
 				let payloadRaw: unknown;

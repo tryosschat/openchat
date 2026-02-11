@@ -67,6 +67,7 @@ async function main() {
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify([["PING"]]),
+			signal: AbortSignal.timeout(5_000),
 		});
 
 		if (!response.ok) {
