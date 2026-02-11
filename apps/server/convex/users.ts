@@ -1,11 +1,11 @@
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { incrementStat, decrementStat, STAT_KEYS } from "./lib/dbStats";
 import { rateLimiter } from "./lib/rateLimiter";
 import { throwRateLimitError } from "./lib/rateLimitUtils";
 import { getProfileByUserId, getOrCreateProfile } from "./lib/profiles";
-import { components } from "./_generated/api";
-import { requireAuthUserId } from "./lib/auth";
+import { components, internal } from "./_generated/api";
+import { requireAuthUserId, requireAuthUserIdFromAction } from "./lib/auth";
 
 // User with profile data (for backwards-compatible responses)
 // Includes merged profile data that prefers profile over user during migration
@@ -313,6 +313,7 @@ export const incrementAiUsage = internalMutation({
 	args: {
 		userId: v.id("users"),
 		usageCents: v.number(),
+		skipRedisSync: v.optional(v.boolean()),
 	},
 	returns: v.object({
 		usedCents: v.number(),
@@ -366,6 +367,10 @@ export const incrementAiUsage = internalMutation({
 			aiUsageDate: currentDate,
 			updatedAt: Date.now(),
 		});
+
+		// NOTE: Redis sync is performed from action callsites (e.g. backgroundStream)
+		// to avoid HTTP side effects inside mutations.
+		void args.skipRedisSync;
 
 		return {
 			usedCents: nextCents,
@@ -595,6 +600,259 @@ export const updateName = mutation({
 		});
 
 		return { success: true };
+	},
+});
+
+const DELETE_BATCH_SIZE_DEFAULT = 100;
+const DELETE_BATCH_SIZE_MAX = 500;
+
+function normalizeBatchSize(value?: number): number {
+	if (!value || !Number.isFinite(value) || value <= 0) {
+		return DELETE_BATCH_SIZE_DEFAULT;
+	}
+	return Math.min(Math.floor(value), DELETE_BATCH_SIZE_MAX);
+}
+
+const deletionBatchResult = v.object({
+	deleted: v.number(),
+	hasMore: v.boolean(),
+});
+
+export const deleteUserStreamJobs = internalMutation({
+	args: {
+		userId: v.id("users"),
+		batchSize: v.optional(v.number()),
+	},
+	returns: deletionBatchResult,
+	handler: async (ctx, args) => {
+		const batchSize = normalizeBatchSize(args.batchSize);
+		const streamJobs = await ctx.db
+			.query("streamJobs")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.take(batchSize);
+
+		for (const job of streamJobs) {
+			await ctx.db.delete(job._id);
+		}
+
+		return {
+			deleted: streamJobs.length,
+			hasMore: streamJobs.length === batchSize,
+		};
+	},
+});
+
+export const deleteUserMessages = internalMutation({
+	args: {
+		userId: v.id("users"),
+		batchSize: v.optional(v.number()),
+	},
+	returns: deletionBatchResult,
+	handler: async (ctx, args) => {
+		const batchSize = normalizeBatchSize(args.batchSize);
+		const messages = await ctx.db
+			.query("messages")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.take(batchSize);
+
+		for (const message of messages) {
+			await ctx.db.delete(message._id);
+		}
+
+		return {
+			deleted: messages.length,
+			hasMore: messages.length === batchSize,
+		};
+	},
+});
+
+export const deleteUserChats = internalMutation({
+	args: {
+		userId: v.id("users"),
+		batchSize: v.optional(v.number()),
+	},
+	returns: deletionBatchResult,
+	handler: async (ctx, args) => {
+		const batchSize = normalizeBatchSize(args.batchSize);
+		const chats = await ctx.db
+			.query("chats")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.take(batchSize);
+
+		for (const chat of chats) {
+			await ctx.db.delete(chat._id);
+		}
+
+		return {
+			deleted: chats.length,
+			hasMore: chats.length === batchSize,
+		};
+	},
+});
+
+export const deleteUserFiles = internalMutation({
+	args: {
+		userId: v.id("users"),
+		batchSize: v.optional(v.number()),
+	},
+	returns: deletionBatchResult,
+	handler: async (ctx, args) => {
+		const batchSize = normalizeBatchSize(args.batchSize);
+		const files = await ctx.db
+			.query("fileUploads")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.take(batchSize);
+
+		for (const file of files) {
+			try {
+				await ctx.storage.delete(file.storageId);
+			} catch (e) {
+				const message = e instanceof Error ? e.message : String(e);
+				if (!message.toLowerCase().includes("not found")) {
+					console.error("Unexpected error deleting storage file:", file.storageId, message);
+				}
+			}
+			await ctx.db.delete(file._id);
+		}
+
+		return {
+			deleted: files.length,
+			hasMore: files.length === batchSize,
+		};
+	},
+});
+
+export const deleteUserRecord = internalMutation({
+	args: {
+		userId: v.id("users"),
+		externalId: v.string(),
+	},
+	returns: v.object({ success: v.boolean() }),
+	handler: async (ctx, args) => {
+		const user = await ctx.db.get(args.userId);
+		if (!user || user.externalId !== args.externalId) {
+			return { success: false };
+		}
+
+		await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+			input: {
+				model: "session",
+				where: [{ field: "userId", operator: "eq", value: args.externalId }],
+			},
+			paginationOpts: { cursor: null, numItems: 1000 },
+		});
+
+		await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+			input: {
+				model: "account",
+				where: [{ field: "userId", operator: "eq", value: args.externalId }],
+			},
+			paginationOpts: { cursor: null, numItems: 100 },
+		});
+
+		await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+			input: {
+				model: "user",
+				where: [{ field: "_id", operator: "eq", value: args.externalId }],
+			},
+			paginationOpts: { cursor: null, numItems: 1 },
+		});
+
+		const readStatuses = await ctx.db
+			.query("chatReadStatus")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.collect();
+		for (const status of readStatuses) {
+			await ctx.db.delete(status._id);
+		}
+
+		const templates = await ctx.db
+			.query("promptTemplates")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.collect();
+		for (const template of templates) {
+			await ctx.db.delete(template._id);
+		}
+
+		const profile = await ctx.db
+			.query("profiles")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.unique();
+		if (profile) {
+			await ctx.db.delete(profile._id);
+		}
+
+		await ctx.db.delete(args.userId);
+		await decrementStat(ctx, STAT_KEYS.USERS_TOTAL);
+
+		return { success: true };
+	},
+});
+
+export const deleteAccountWorkflowStep = action({
+	args: {
+		userId: v.id("users"),
+		externalId: v.string(),
+		step: v.union(
+			v.literal("delete-stream-jobs"),
+			v.literal("delete-messages"),
+			v.literal("delete-chats"),
+			v.literal("delete-files"),
+			v.literal("delete-user"),
+		),
+		batchSize: v.optional(v.number()),
+	},
+	returns: v.object({
+		deleted: v.number(),
+		hasMore: v.boolean(),
+		success: v.optional(v.boolean()),
+	}),
+	handler: async (
+		ctx,
+		args,
+	): Promise<{ deleted: number; hasMore: boolean; success?: boolean }> => {
+		const userId = await requireAuthUserIdFromAction(ctx, args.userId);
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity || identity.subject !== args.externalId) {
+			throw new Error("Unauthorized");
+		}
+
+		switch (args.step) {
+			case "delete-stream-jobs":
+				return await ctx.runMutation(internal.users.deleteUserStreamJobs, {
+					userId,
+					batchSize: args.batchSize,
+				});
+			case "delete-messages":
+				return await ctx.runMutation(internal.users.deleteUserMessages, {
+					userId,
+					batchSize: args.batchSize,
+				});
+			case "delete-chats":
+				return await ctx.runMutation(internal.users.deleteUserChats, {
+					userId,
+					batchSize: args.batchSize,
+				});
+			case "delete-files":
+				return await ctx.runMutation(internal.users.deleteUserFiles, {
+					userId,
+					batchSize: args.batchSize,
+				});
+			case "delete-user": {
+				const result: { success: boolean } = await ctx.runMutation(
+					internal.users.deleteUserRecord,
+					{
+					userId,
+					externalId: args.externalId,
+					},
+				);
+				return {
+					deleted: result.success ? 1 : 0,
+					hasMore: false,
+					success: result.success,
+				};
+			}
+		}
 	},
 });
 

@@ -13,7 +13,8 @@
  */
 
 import { cronJobs } from "convex/server";
-import { internalMutation } from "./_generated/server";
+import { action, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { decrementStat, getStats, STAT_KEYS } from "./lib/dbStats";
 import { createLogger } from "./lib/logger";
@@ -153,6 +154,37 @@ export const cleanupSoftDeletedRecords = internalMutation({
 			logger.error("Cleanup soft-deleted records - Failed", error);
 			throw error;
 		}
+	},
+});
+
+export const runCleanupBatchForWorkflow = action({
+	args: {
+		workflowToken: v.string(),
+		retentionDays: v.optional(v.number()),
+		batchSize: v.optional(v.number()),
+		dryRun: v.optional(v.boolean()),
+	},
+	returns: v.object({
+		success: v.boolean(),
+		deleted: v.number(),
+		dryRun: v.boolean(),
+		cutoffDate: v.string(),
+	}),
+	handler: async (
+		ctx,
+		args,
+	): Promise<{ success: boolean; deleted: number; dryRun: boolean; cutoffDate: string }> => {
+		const expectedToken = process.env.WORKFLOW_CLEANUP_TOKEN;
+		if (!expectedToken || args.workflowToken !== expectedToken) {
+			throw new Error("Unauthorized");
+		}
+
+		const result = await ctx.runMutation(internal.crons.cleanupSoftDeletedRecords, {
+			retentionDays: args.retentionDays,
+			batchSize: args.batchSize,
+			dryRun: args.dryRun,
+		});
+		return result;
 	},
 });
 

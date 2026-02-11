@@ -3,6 +3,7 @@ import { json } from "@tanstack/react-start";
 import { api } from "@server/convex/_generated/api";
 import { encryptSecret } from "@/lib/server-crypto";
 import { getAuthUser, getConvexClientForRequest, getConvexUserId, getConvexUserIdReadOnly, isSameOrigin } from "@/lib/server-auth";
+import { authRatelimit } from "@/lib/upstash";
 
 export const Route = createFileRoute("/api/openrouter-key")({
 	server: {
@@ -60,13 +61,22 @@ export const Route = createFileRoute("/api/openrouter-key")({
 						return json({ error: "apiKey is required" }, { status: 400 });
 					}
 
-					const convexUserId = await getConvexUserId(authUser, request);
-					if (!convexUserId) {
-						return json({ error: "Unauthorized" }, { status: 401 });
-					}
+						const convexUserId = await getConvexUserId(authUser, request);
+						if (!convexUserId) {
+							return json({ error: "Unauthorized" }, { status: 401 });
+						}
+						if (authRatelimit) {
+							const rate = await authRatelimit.limit(`openrouter-key:post:${convexUserId}`);
+							if (!rate.success) {
+								return json(
+									{ error: "Too many key update attempts. Please try again shortly." },
+									{ status: 429 },
+								);
+							}
+						}
 
-					const convexClient = await getConvexClientForRequest(request);
-					if (!convexClient) {
+						const convexClient = await getConvexClientForRequest(request);
+						if (!convexClient) {
 						return json({ error: "Unauthorized" }, { status: 401 });
 					}
 
@@ -93,13 +103,22 @@ export const Route = createFileRoute("/api/openrouter-key")({
 						return json({ error: "Unauthorized" }, { status: 401 });
 					}
 
-					const convexUserId = await getConvexUserId(authUser, request);
-					if (!convexUserId) {
-						return json({ error: "Unauthorized" }, { status: 401 });
-					}
+						const convexUserId = await getConvexUserId(authUser, request);
+						if (!convexUserId) {
+							return json({ error: "Unauthorized" }, { status: 401 });
+						}
+						if (authRatelimit) {
+							const rate = await authRatelimit.limit(`openrouter-key:delete:${convexUserId}`);
+							if (!rate.success) {
+								return json(
+									{ error: "Too many key update attempts. Please try again shortly." },
+									{ status: 429 },
+								);
+							}
+						}
 
-					const convexClient = await getConvexClientForRequest(request);
-					if (!convexClient) {
+						const convexClient = await getConvexClientForRequest(request);
+						if (!convexClient) {
 						return json({ error: "Unauthorized" }, { status: 401 });
 					}
 

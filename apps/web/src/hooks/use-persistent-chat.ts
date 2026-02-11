@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@server/convex/_generated/api";
 import { toast } from "sonner";
 import type { Id } from "@server/convex/_generated/dataModel";
@@ -7,7 +7,6 @@ import type { UIMessage } from "ai";
 import { useAuth } from "@/lib/auth-client";
 import { getModelById, getModelCapabilities, useModelStore, useModels } from "@/stores/model";
 import { useProviderStore } from "@/stores/provider";
-import { useChatTitleStore } from "@/stores/chat-title";
 import { useStreamStore } from "@/stores/stream";
 import { analytics } from "@/lib/analytics";
 
@@ -87,8 +86,6 @@ function hasStreamingState(part: unknown): boolean {
 function getReasoningText(part: unknown): string | undefined {
 	return isReasoningPart(part) ? part.text : undefined;
 }
-
-const TITLE_GENERATION_RETRY_DELAY_MS = 1500;
 
 function sanitizeToolName(toolName: string | undefined): string {
 	if (!toolName || toolName.trim().length === 0) return "tool";
@@ -263,8 +260,6 @@ export function usePersistentChat({
 	const { models } = useModels();
 	const activeProvider = useProviderStore((s) => s.activeProvider);
 	const webSearchEnabled = useProviderStore((s) => s.webSearchEnabled);
-	const chatTitleLength = useChatTitleStore((s) => s.length);
-	const setTitleGenerating = useChatTitleStore((s) => s.setGenerating);
 
 	const [messages, setMessages] = useState<Array<UIMessage>>([]);
 	const [status, setStatus] = useState<"ready" | "submitted" | "streaming" | "error">("ready");
@@ -314,8 +309,6 @@ export function usePersistentChat({
 	const editAndRegenerate = useMutation(api.messages.editAndRegenerate);
 	const retryMessageMut = useMutation(api.messages.retryMessage);
 	const forkChatMut = useMutation(api.chats.fork);
-	const updateTitle = useMutation(api.chats.updateTitle);
-	const generateTitle = useAction(api.chats.generateTitle);
 	const startBackgroundStream = useMutation(api.backgroundStream.startStream);
 	const cleanupStaleJobs = useMutation(api.backgroundStream.cleanupStaleJobs);
 
@@ -521,7 +514,7 @@ export function usePersistentChat({
 				return;
 			}
 
-			let targetChatId = chatIdRef.current;
+				let targetChatId = chatIdRef.current;
 
 			if (!targetChatId) {
 				try {
@@ -610,71 +603,6 @@ export function usePersistentChat({
 					},
 				]);
 
-				if (!chatId) {
-					const seedText = message.text.trim().slice(0, 300);
-					if (seedText) {
-						void (async () => {
-							if (!targetChatId) return;
-
-							const attemptGenerate = async () => {
-								try {
-									const generatedTitle = await generateTitle({
-										userId: convexUserId,
-										seedText,
-										length: chatTitleLength,
-										provider: activeProvider,
-									});
-
-									if (generatedTitle) {
-										await updateTitle({
-											chatId: targetChatId as Id<"chats">,
-											userId: convexUserId,
-											title: generatedTitle,
-										});
-										return { status: "success" } as const;
-									}
-									return { status: "empty" } as const;
-								} catch (err) {
-								const parsedError = err instanceof Error ? err : new Error(String(err));
-								return {
-									status: "error",
-									message: parsedError.message,
-									name: parsedError.name,
-									} as const;
-								}
-							};
-
-							if (isMountedRef.current) {
-								setTitleGenerating(targetChatId, true, "auto");
-							}
-							try {
-								const result = await attemptGenerate();
-								if (result.status === "error") {
-									const isRateLimit = result.name === "RateLimitError";
-									if (!isRateLimit) {
-										await new Promise((resolve) =>
-											setTimeout(resolve, TITLE_GENERATION_RETRY_DELAY_MS)
-										);
-										const retryResult = await attemptGenerate();
-										if (retryResult.status === "error") {
-											if (isMountedRef.current) {
-												toast.error("Failed to generate chat name");
-											}
-										}
-									} else {
-										if (isMountedRef.current) {
-											toast.error(result.message || "Rate limit reached. Try again later.");
-										}
-									}
-								}
-							} finally {
-								if (isMountedRef.current) {
-									setTitleGenerating(targetChatId, false);
-								}
-							}
-						})();
-					}
-				}
 			} catch (err) {
 				const parsedError = err instanceof Error ? err : new Error("Unknown error");
 				setError(parsedError);
@@ -706,13 +634,12 @@ export function usePersistentChat({
 				}
 			}
 		},
-			[
-				convexUserId, isUserLoading, user?.id, chatId, messages, models,
-				activeProvider, webSearchEnabled, chatTitleLength,
-				setTitleGenerating, createChat, sendMessages, updateTitle, generateTitle, startBackgroundStream,
-				cleanupStaleJobs,
-			],
-		);
+				[
+					convexUserId, isUserLoading, user?.id, chatId, messages, models,
+					activeProvider, webSearchEnabled, createChat, sendMessages,
+					startBackgroundStream, cleanupStaleJobs,
+				],
+			);
 
 	const editMessage = useCallback(
 		async (messageId: string, newContent: string) => {

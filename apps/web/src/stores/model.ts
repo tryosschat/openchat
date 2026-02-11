@@ -329,7 +329,7 @@ async function fetchAllModels(): Promise<Array<Model>> {
 
   cache.promise = (async () => {
     try {
-      const response = await fetch("https://openrouter.ai/api/v1/models", {
+      const response = await fetch("/api/models", {
         headers: { "Content-Type": "application/json" },
       });
 

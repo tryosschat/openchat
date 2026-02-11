@@ -11,6 +11,10 @@ import {
 	calculateUsageCents,
 } from "./lib/billingUtils";
 import type { UsagePayload } from "./lib/billingUtils";
+import {
+	getDailyUsageFromUpstash,
+	incrementDailyUsageInUpstash,
+} from "./lib/upstashUsage";
 import { requireAuthUserId } from "./lib/auth";
 import { decryptSecret } from "./lib/crypto";
 
@@ -24,6 +28,16 @@ const chainOfThoughtPartValidator = v.object({
 	input: v.optional(v.any()),
 	output: v.optional(v.any()),
 	errorText: v.optional(v.string()),
+});
+
+const streamOptionsValidator = v.object({
+	enableReasoning: v.optional(v.boolean()),
+	reasoningEffort: v.optional(v.string()),
+	enableWebSearch: v.optional(v.boolean()),
+	supportsToolCalls: v.optional(v.boolean()),
+	maxSteps: v.optional(v.number()),
+	dynamicPrompt: v.optional(v.boolean()),
+	jonMode: v.optional(v.boolean()),
 });
 
 type ChainOfThoughtPart = {
@@ -87,6 +101,20 @@ function isWebSearchToolName(toolName: string | undefined): boolean {
 	if (!toolName) return false;
 	const normalized = toolName.toLowerCase();
 	return normalized === "websearch" || normalized === "web_search";
+}
+
+function getLatestUserSeedText(
+	messages: Array<{ role: string; content: string }>,
+): string | null {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message?.role !== "user") continue;
+		const normalized = message.content.trim().slice(0, 300);
+		if (normalized.length > 0) {
+			return normalized;
+		}
+	}
+	return null;
 }
 
 function truncateText(value: string, maxChars: number): string {
@@ -265,32 +293,26 @@ export const startStream = mutation({
 			role: v.string(),
 			content: v.string(),
 		})),
-		options: v.optional(v.object({
-			enableReasoning: v.optional(v.boolean()),
-			reasoningEffort: v.optional(v.string()),
-			enableWebSearch: v.optional(v.boolean()),
-			supportsToolCalls: v.optional(v.boolean()),
-			maxSteps: v.optional(v.number()),
-		})),
+		options: v.optional(streamOptionsValidator),
 	},
 	returns: v.id("streamJobs"),
-		handler: async (ctx, args) => {
+	handler: async (ctx, args) => {
 		const userId = await requireAuthUserId(ctx, args.userId);
 		const chat = await ctx.db.get(args.chatId);
 		if (!chat || chat.userId !== userId) {
 			throw new Error("Chat not found or unauthorized");
 		}
 
-			if (args.provider === "osschat") {
+		if (args.provider === "osschat") {
+			const currentDate = getCurrentDateKey();
 			const user = await ctx.db.get(userId);
 			if (!user) {
 				throw new Error("User not found");
 			}
 
-			const currentDate = getCurrentDateKey();
-			const usedCents =
+			const persistedUsageCents =
 				user.aiUsageDate === currentDate ? (user.aiUsageCents ?? 0) : 0;
-			if (usedCents >= DAILY_AI_LIMIT_CENTS) {
+			if (persistedUsageCents >= DAILY_AI_LIMIT_CENTS) {
 				throw new Error("Daily usage limit reached. Connect your OpenRouter account to continue.");
 			}
 		}
@@ -343,6 +365,21 @@ export const startStream = mutation({
 			jobId,
 		});
 
+		const shouldGenerateAutoTitle =
+			(chat.title === "New Chat" || !chat.title) &&
+			(chat.messageCount ?? 0) <= 1;
+		const seedText = shouldGenerateAutoTitle ? getLatestUserSeedText(args.messages) : null;
+		if (seedText) {
+			await ctx.scheduler.runAfter(0, internal.chats.generateAndSetTitleInternal, {
+				chatId: args.chatId,
+				userId,
+				seedText,
+				length: "standard",
+				provider: args.provider === "openrouter" ? "openrouter" : "osschat",
+				force: false,
+			});
+		}
+
 		return jobId;
 	},
 });
@@ -358,13 +395,7 @@ export const getStreamJob = query({
 			status: v.string(),
 			model: v.string(),
 			provider: v.string(),
-			options: v.optional(v.object({
-				enableReasoning: v.optional(v.boolean()),
-				reasoningEffort: v.optional(v.string()),
-				enableWebSearch: v.optional(v.boolean()),
-				supportsToolCalls: v.optional(v.boolean()),
-				maxSteps: v.optional(v.number()),
-			})),
+			options: v.optional(streamOptionsValidator),
 			content: v.string(),
 			reasoning: v.optional(v.string()),
 			chainOfThoughtParts: v.optional(v.array(chainOfThoughtPartValidator)),
@@ -422,13 +453,7 @@ export const getActiveStreamJob = query({
 			status: v.string(),
 			model: v.string(),
 			provider: v.string(),
-			options: v.optional(v.object({
-				enableReasoning: v.optional(v.boolean()),
-				reasoningEffort: v.optional(v.string()),
-				enableWebSearch: v.optional(v.boolean()),
-				supportsToolCalls: v.optional(v.boolean()),
-				maxSteps: v.optional(v.number()),
-			})),
+			options: v.optional(streamOptionsValidator),
 			content: v.string(),
 			reasoning: v.optional(v.string()),
 			chainOfThoughtParts: v.optional(v.array(chainOfThoughtPartValidator)),
@@ -771,9 +796,21 @@ export const executeStream = internalAction({
 			jobId: args.jobId
 		});
 
-		if (!job) {
-			return;
-		}
+			if (!job) {
+				return;
+			}
+
+			if (job.provider === "osschat") {
+				const currentDate = getCurrentDateKey();
+				const redisUsageCents = await getDailyUsageFromUpstash(job.userId, currentDate);
+				if (redisUsageCents !== null && redisUsageCents >= DAILY_AI_LIMIT_CENTS) {
+					await ctx.runMutation(internal.backgroundStream.failStream, {
+						jobId: args.jobId,
+						error: "Daily usage limit reached. Connect your OpenRouter account to continue.",
+					});
+					return;
+				}
+			}
 
 		await ctx.runMutation(internal.backgroundStream.updateStreamContent, {
 			jobId: args.jobId,
@@ -1317,17 +1354,23 @@ export const executeStream = internalAction({
 					job.messages,
 					fullContent,
 				);
-				if (usageCents && usageCents > 0) {
-					for (let attempt = 0; attempt < 2; attempt++) {
-						try {
-							await ctx.runMutation(internal.users.incrementAiUsage, {
-								userId: job.userId,
-								usageCents,
-							});
-							break;
-						} catch {
-							// No-op; retried below.
-						}
+					if (usageCents && usageCents > 0) {
+						for (let attempt = 0; attempt < 2; attempt++) {
+							try {
+								await ctx.runMutation(internal.users.incrementAiUsage, {
+									userId: job.userId,
+									usageCents,
+									skipRedisSync: true,
+								});
+								await incrementDailyUsageInUpstash(
+									job.userId,
+									getCurrentDateKey(),
+									usageCents,
+								);
+								break;
+							} catch {
+								// No-op; retried below.
+							}
 					}
 				}
 			}

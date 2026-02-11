@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { json } from "@tanstack/react-start";
-import { redis } from "@/lib/redis";
 import { getAuthUser, getConvexUserId, isSameOrigin } from "@/lib/server-auth";
+import { upstashRedis } from "@/lib/upstash";
 
 export const Route = createFileRoute("/api/typing")({
 	server: {
@@ -27,14 +27,19 @@ export const Route = createFileRoute("/api/typing")({
 						return json({ error: "chatId required" }, { status: 400 });
 					}
 
-					if (!redis.isAvailable()) {
-						return json({ ok: true });
-					}
+						if (!upstashRedis) {
+							return json({ ok: true });
+						}
 
-					await redis.typing.set(chatId, convexUserId, !!isTyping);
-					return json({ ok: true });
-				} catch {
-					return json({ error: "Failed to update typing status" }, { status: 500 });
+						const key = `chat:${chatId}:typing:${convexUserId}`;
+						if (isTyping) {
+							await upstashRedis.set(key, "1", { ex: 3 });
+						} else {
+							await upstashRedis.del(key);
+						}
+						return json({ ok: true });
+					} catch {
+						return json({ error: "Failed to update typing status" }, { status: 500 });
 				}
 			},
 
@@ -53,13 +58,29 @@ export const Route = createFileRoute("/api/typing")({
 					return json({ error: "chatId required" }, { status: 400 });
 				}
 
-				if (!redis.isAvailable()) {
-					return json({ users: [] });
-				}
+					if (!upstashRedis) {
+						return json({ users: [] });
+					}
 
-				const users = await redis.typing.getUsers(chatId);
-				return json({ users });
+					const users = new Set<string>();
+					const pattern = `chat:${chatId}:typing:*`;
+					let cursor: string | number = "0";
+					do {
+						const [nextCursor, keys]: [string, Array<string>] = await upstashRedis.scan(cursor, {
+							match: pattern,
+							count: 100,
+						});
+						cursor = nextCursor;
+						for (const key of keys) {
+							const userId = key.split(":").pop();
+							if (userId) {
+								users.add(userId);
+							}
+						}
+					} while (String(cursor) !== "0");
+
+					return json({ users: [...users] });
+				},
 			},
 		},
-	},
 });

@@ -1,59 +1,11 @@
-/**
- * Redis client for real-time streaming
- * 
- * Uses Redis Streams for durable, resumable chat token streaming.
- * Works with any Redis (self-hosted, Upstash, etc.)
- */
+import type { Redis as UpstashRedis } from "@upstash/redis";
+import { upstashRedis } from "@/lib/upstash";
 
-import {  createClient } from "redis";
-import type {RedisClientType} from "redis";
-
-let redisClient: RedisClientType | null = null;
-let isConnected = false;
-let connectionPromise: Promise<void> | null = null;
-
-const REDIS_URL = process.env.REDIS_URL;
-
-export function getRedisClient(): RedisClientType | null {
-	if (!REDIS_URL) {
-		return null;
-	}
-
-	if (!redisClient) {
-		redisClient = createClient({ url: REDIS_URL });
-		redisClient.on("error", (err: Error) => {
-			console.error("[Redis] Error:", err);
-			isConnected = false;
-		});
-		redisClient.on("connect", () => {
-			console.log("[Redis] Connected");
-			isConnected = true;
-		});
-		redisClient.on("disconnect", () => {
-			console.log("[Redis] Disconnected");
-			isConnected = false;
-		});
-		connectionPromise = redisClient.connect().then(() => {}).catch((err: Error) => {
-			console.error("[Redis] Connection failed:", err);
-			isConnected = false;
-		});
-	}
-
-	return redisClient;
-}
-
-export async function ensureRedisConnected(): Promise<boolean> {
-	if (!REDIS_URL) return false;
-	getRedisClient();
-	if (connectionPromise) {
-		await connectionPromise;
-	}
-	return isConnected;
-}
-
-export function isRedisAvailable(): boolean {
-	return !!REDIS_URL && isConnected;
-}
+const STREAM_TTL_SECONDS = 3600;
+const STREAM_ERROR_TTL_SECONDS = 600;
+const TYPING_TTL_SECONDS = 3;
+const PRESENCE_TTL_SECONDS = 60;
+const ONLINE_WINDOW_MS = 60_000;
 
 const keys = {
 	stream: (chatId: string) => `chat:${chatId}:stream`,
@@ -80,14 +32,38 @@ export interface StreamMeta {
 	error?: string;
 }
 
-async function getConnectedClient(): Promise<RedisClientType | null> {
-	const client = getRedisClient();
-	if (!client) return null;
-	if (connectionPromise) {
-		await connectionPromise;
+export function getRedisClient(): UpstashRedis | null {
+	return upstashRedis;
+}
+
+export function isRedisAvailable(): boolean {
+	return upstashRedis !== null;
+}
+
+export async function ensureRedisConnected(): Promise<boolean> {
+	if (!upstashRedis) return false;
+	try {
+		await upstashRedis.ping();
+		return true;
+	} catch (error) {
+		console.error("[Upstash Redis] Ping failed:", error);
+		return false;
 	}
-	if (!isConnected) return null;
-	return client;
+}
+
+async function getConnectedClient(): Promise<UpstashRedis | null> {
+	if (!upstashRedis) return null;
+	const isReady = await ensureRedisConnected();
+	return isReady ? upstashRedis : null;
+}
+
+function parseStreamMeta(value: unknown): StreamMeta | null {
+	if (typeof value !== "string") return null;
+	try {
+		return JSON.parse(value) as StreamMeta;
+	} catch {
+		return null;
+	}
 }
 
 export async function initStream(
@@ -106,8 +82,9 @@ export async function initStream(
 		startedAt: Date.now(),
 	};
 
-	await client.set(keys.meta(chatId), JSON.stringify(meta), { EX: 3600 });
-	console.log("[Redis] Stream initialized for chat:", chatId);
+	await client.set(keys.meta(chatId), JSON.stringify(meta), {
+		ex: STREAM_TTL_SECONDS,
+	});
 	return true;
 }
 
@@ -120,14 +97,12 @@ export async function appendToken(
 	if (!client) return null;
 
 	const streamKey = keys.stream(chatId);
-	const entryId = await client.xAdd(streamKey, "*", {
+	const entryId = await client.xadd(streamKey, "*", {
 		text,
 		type,
 		ts: Date.now().toString(),
 	});
-
-	await client.expire(streamKey, 3600);
-
+	await client.expire(streamKey, STREAM_TTL_SECONDS);
 	return entryId;
 }
 
@@ -138,14 +113,14 @@ export async function completeStream(chatId: string): Promise<void> {
 	await appendToken(chatId, "", "done");
 
 	const metaKey = keys.meta(chatId);
-	const metaStr = await client.get(metaKey);
-	if (metaStr) {
-		const meta: StreamMeta = JSON.parse(metaStr);
-		meta.status = "completed";
-		meta.completedAt = Date.now();
-		await client.set(metaKey, JSON.stringify(meta), { EX: 3600 });
-	}
-	console.log("[Redis] Stream completed for chat:", chatId);
+	const meta = parseStreamMeta(await client.get(metaKey));
+	if (!meta) return;
+
+	meta.status = "completed";
+	meta.completedAt = Date.now();
+	await client.set(metaKey, JSON.stringify(meta), {
+		ex: STREAM_TTL_SECONDS,
+	});
 }
 
 export async function errorStream(chatId: string, error: string): Promise<void> {
@@ -155,14 +130,15 @@ export async function errorStream(chatId: string, error: string): Promise<void> 
 	await appendToken(chatId, error, "error");
 
 	const metaKey = keys.meta(chatId);
-	const metaStr = await client.get(metaKey);
-	if (metaStr) {
-		const meta: StreamMeta = JSON.parse(metaStr);
-		meta.status = "error";
-		meta.error = error;
-		meta.completedAt = Date.now();
-		await client.set(metaKey, JSON.stringify(meta), { EX: 600 });
-	}
+	const meta = parseStreamMeta(await client.get(metaKey));
+	if (!meta) return;
+
+	meta.status = "error";
+	meta.error = error;
+	meta.completedAt = Date.now();
+	await client.set(metaKey, JSON.stringify(meta), {
+		ex: STREAM_ERROR_TTL_SECONDS,
+	});
 }
 
 export async function readStream(
@@ -172,25 +148,32 @@ export async function readStream(
 	const client = await getConnectedClient();
 	if (!client) return [];
 
-	const streamKey = keys.stream(chatId);
-	const entries = await client.xRange(streamKey, lastId === "0" ? "-" : `(${lastId}`, "+");
+	const entries = await client.xrange(
+		keys.stream(chatId),
+		lastId === "0" ? "-" : `(${lastId}`,
+		"+",
+	);
 
-	return entries.map((entry: { id: string; message: Record<string, string> }) => ({
-		id: entry.id,
-		text: entry.message.text || "",
-		type: (entry.message.type as StreamToken["type"]),
-		timestamp: parseInt(entry.message.ts || "0", 10),
+	return Object.entries(entries).map(([id, message]) => ({
+		id,
+		text: typeof message.text === "string" ? message.text : "",
+		type:
+			message.type === "reasoning" ||
+			message.type === "done" ||
+			message.type === "error"
+				? message.type
+				: "text",
+		timestamp:
+			typeof message.ts === "string"
+				? Number.parseInt(message.ts, 10)
+				: Date.now(),
 	}));
 }
 
 export async function getStreamMeta(chatId: string): Promise<StreamMeta | null> {
 	const client = await getConnectedClient();
 	if (!client) return null;
-
-	const metaStr = await client.get(keys.meta(chatId));
-	if (!metaStr) return null;
-
-	return JSON.parse(metaStr);
+	return parseStreamMeta(await client.get(keys.meta(chatId)));
 }
 
 export async function hasActiveStream(chatId: string): Promise<boolean> {
@@ -208,10 +191,10 @@ export async function setTyping(
 
 	const key = keys.typing(chatId, userId);
 	if (isTyping) {
-		await client.set(key, "1", { EX: 3 });
-	} else {
-		await client.del(key);
+		await client.set(key, "1", { ex: TYPING_TTL_SECONDS });
+		return;
 	}
+	await client.del(key);
 }
 
 export async function getTypingUsers(chatId: string): Promise<Array<string>> {
@@ -219,60 +202,64 @@ export async function getTypingUsers(chatId: string): Promise<Array<string>> {
 	if (!client) return [];
 
 	const pattern = `chat:${chatId}:typing:*`;
-	const foundKeys: Array<string> = [];
-	for await (const scanKeys of client.scanIterator({ MATCH: pattern, COUNT: 100 })) {
-		if (Array.isArray(scanKeys)) {
-			foundKeys.push(...scanKeys);
-		} else {
-			foundKeys.push(scanKeys);
-		}
-	}
+	const users = new Set<string>();
+	let cursor: string | number = "0";
 
-	return foundKeys.map((key) => key.split(":").pop() || "");
+	do {
+		const [nextCursor, keysFound]: [string, Array<string>] = await client.scan(cursor, {
+			match: pattern,
+			count: 100,
+		});
+		cursor = nextCursor;
+		for (const key of keysFound) {
+			const userId = key.split(":").pop();
+			if (userId) {
+				users.add(userId);
+			}
+		}
+	} while (String(cursor) !== "0");
+
+	return [...users];
 }
 
 export async function updatePresence(userId: string): Promise<void> {
 	const client = await getConnectedClient();
 	if (!client) return;
-
-	await client.set(keys.presence(userId), Date.now().toString(), { EX: 60 });
+	await client.set(keys.presence(userId), Date.now().toString(), {
+		ex: PRESENCE_TTL_SECONDS,
+	});
 }
 
 export async function isUserOnline(userId: string): Promise<boolean> {
 	const client = await getConnectedClient();
 	if (!client) return false;
 
-	const lastSeen = await client.get(keys.presence(userId));
+	const lastSeen = await client.get<string>(keys.presence(userId));
 	if (!lastSeen) return false;
-
-	return Date.now() - parseInt(lastSeen, 10) < 60000;
+	return Date.now() - Number.parseInt(lastSeen, 10) < ONLINE_WINDOW_MS;
 }
 
 export async function incrementUnread(userId: string, chatId: string): Promise<void> {
 	const client = await getConnectedClient();
 	if (!client) return;
-
-	await client.hIncrBy(keys.unread(userId), chatId, 1);
+	await client.hincrby(keys.unread(userId), chatId, 1);
 }
 
 export async function clearUnread(userId: string, chatId: string): Promise<void> {
 	const client = await getConnectedClient();
 	if (!client) return;
-
-	await client.hDel(keys.unread(userId), chatId);
+	await client.hdel(keys.unread(userId), chatId);
 }
 
 export async function getUnreadCounts(userId: string): Promise<Record<string, number>> {
 	const client = await getConnectedClient();
 	if (!client) return {};
 
-	const counts = await client.hGetAll(keys.unread(userId));
+	const counts = await client.hgetall<Record<string, string>>(keys.unread(userId));
 	const result: Record<string, number> = {};
-
-	for (const [chatId, count] of Object.entries(counts)) {
-		result[chatId] = parseInt(count, 10);
+	for (const [chatId, count] of Object.entries(counts ?? {})) {
+		result[chatId] = Number.parseInt(count, 10);
 	}
-
 	return result;
 }
 

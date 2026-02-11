@@ -17,17 +17,41 @@ type AuthSessionResponse = {
 const CONVEX_SITE_URL =
 	process.env.VITE_CONVEX_SITE_URL || process.env.CONVEX_SITE_URL;
 
+function getCookieValue(cookieHeader: string, name: string): string | null {
+	const target = `${name}=`;
+	for (const part of cookieHeader.split(";")) {
+		const trimmed = part.trim();
+		if (!trimmed.startsWith(target)) continue;
+		const rawValue = trimmed.slice(target.length);
+		if (!rawValue) return null;
+		try {
+			return decodeURIComponent(rawValue);
+		} catch {
+			return rawValue;
+		}
+	}
+	return null;
+}
+
 export async function getConvexAuthToken(request: Request): Promise<string | null> {
-	if (!CONVEX_SITE_URL) return null;
 	const cookie = request.headers.get("cookie");
 	if (!cookie) return null;
 
-	const response = await fetch(`${CONVEX_SITE_URL}/api/auth/convex/token`, {
-		headers: { cookie },
-	});
-	if (!response.ok) return null;
-	const data = (await response.json()) as { token?: string } | null;
-	return data?.token ?? null;
+	if (CONVEX_SITE_URL) {
+		try {
+			const response = await fetch(`${CONVEX_SITE_URL}/api/auth/convex/token`, {
+				headers: { cookie },
+			});
+			if (response.ok) {
+				const data = (await response.json()) as { token?: string } | null;
+				if (data?.token) return data.token;
+			}
+		} catch {
+			// Fall through to cookie fallback.
+		}
+	}
+
+	return getCookieValue(cookie, "better-auth.convex_jwt");
 }
 
 /**

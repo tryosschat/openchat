@@ -3,19 +3,21 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@vitest/coverage-v8": "^4.0.18",
+    "baseline-browser-mapping": "^2.9.19",
     "convex": "^1.31.7",
     "oxlint": "^1.43.0",
     "turbo": "^2.8.3",
     "vitest": "^4.0.18"
   },
   "overrides": {
-    "@peculiar/asn1-schema": "2.6.0"
+    "@peculiar/asn1-schema": "2.6.0",
+    "baseline-browser-mapping": "2.9.19"
   },
   "packageManager": "bun@1.3.0",
   "private": true,
   "scripts": {
     "check": "turbo lint",
-    "dev": "bun ./scripts/check-redis.ts && turbo -F web -F server dev",
+    "dev": "bun ./scripts/dev.ts",
     "build": "turbo -F server build",
     "build:web": "turbo -F web build",
     "deploy": "bun ./scripts/deploy.ts",

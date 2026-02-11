@@ -11,10 +11,10 @@
  * - Edge cases and error handling
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { convexTest } from 'convex-test';
 import schema from './schema';
-import { api } from './_generated/api';
+import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { modules, rateLimiter } from './testSetup.test';
 
@@ -1110,4 +1110,191 @@ describe('chats.checkExportRateLimit', () => {
     expect(result1.ok).toBe(true);
     expect(result2.ok).toBe(true);
   });
+});
+
+describe('chats.setGeneratedTitle', () => {
+  let t: ReturnType<typeof convexTest>;
+  let userId: Id<'users'>;
+
+  beforeEach(async () => {
+    t = createConvexTest();
+
+    userId = await t.run(async (ctx) => {
+      return await ctx.db.insert('users', {
+        externalId: 'test-user',
+        email: 'test@example.com',
+        name: 'Test User',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+  });
+
+	it('should update title when chat still has default title', async () => {
+    const chatId = await t.run(async (ctx) => {
+      return await ctx.db.insert('chats', {
+        userId,
+        title: 'New Chat',
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+
+    await asExternalId(t, 'test-user').mutation(api.chats.setGeneratedTitle, {
+      chatId,
+      userId,
+      title: 'Generated Title',
+      force: false,
+    });
+
+    const chat = await t.run(async (ctx) => await ctx.db.get(chatId));
+    expect(chat?.title).toBe('Generated Title');
+  });
+
+	it('should bump updatedAt for generated title updates', async () => {
+    const chatId = await t.run(async (ctx) => {
+      return await ctx.db.insert('chats', {
+        userId,
+        title: 'New Chat',
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+
+    await asExternalId(t, 'test-user').mutation(api.chats.setGeneratedTitle, {
+      chatId,
+      userId,
+      title: 'Fresh Title',
+      force: false,
+    });
+
+    const chat = await t.run(async (ctx) => await ctx.db.get(chatId));
+    expect(chat?.updatedAt).toBeGreaterThan(1);
+  });
+
+	it('should not overwrite a custom title without force', async () => {
+    const chatId = await t.run(async (ctx) => {
+      return await ctx.db.insert('chats', {
+        userId,
+        title: 'Already Custom',
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+
+    await asExternalId(t, 'test-user').mutation(api.chats.setGeneratedTitle, {
+      chatId,
+      userId,
+      title: 'Should Not Apply',
+      force: false,
+    });
+
+    const chat = await t.run(async (ctx) => await ctx.db.get(chatId));
+    expect(chat?.title).toBe('Already Custom');
+  });
+
+	it('should overwrite a custom title when force=true', async () => {
+    const chatId = await t.run(async (ctx) => {
+      return await ctx.db.insert('chats', {
+        userId,
+        title: 'Already Custom',
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+
+    await asExternalId(t, 'test-user').mutation(api.chats.setGeneratedTitle, {
+      chatId,
+      userId,
+      title: 'Forced Replace',
+      force: true,
+    });
+
+    const chat = await t.run(async (ctx) => await ctx.db.get(chatId));
+    expect(chat?.title).toBe('Forced Replace');
+  });
+});
+
+describe('chats.generateAndSetTitleInternal', () => {
+	let t: ReturnType<typeof convexTest>;
+	let userId: Id<'users'>;
+	let chatId: Id<'chats'>;
+	const originalApiKey = process.env.OPENROUTER_API_KEY;
+
+	beforeEach(async () => {
+		t = createConvexTest();
+		process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+		vi.restoreAllMocks();
+
+		userId = await t.run(async (ctx) => {
+			return await ctx.db.insert('users', {
+				externalId: 'internal-title-user',
+				email: 'internal-title@test.com',
+				name: 'Internal Title User',
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			});
+		});
+
+		chatId = await t.run(async (ctx) => {
+			return await ctx.db.insert('chats', {
+				userId,
+				title: 'New Chat',
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			});
+		});
+	});
+
+	afterEach(() => {
+		process.env.OPENROUTER_API_KEY = originalApiKey;
+		vi.restoreAllMocks();
+	});
+
+	it('generates and persists a title for default-title chats', async () => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					choices: [{ message: { content: 'Helpful Testing Title' } }],
+				}),
+				{
+					status: 200,
+					headers: { 'Content-Type': 'application/json' },
+				},
+			),
+		);
+
+		const result = await t.action(internal.chats.generateAndSetTitleInternal, {
+			chatId,
+			userId,
+			seedText: 'this is the first user message',
+			length: 'standard',
+			provider: 'osschat',
+			force: false,
+		});
+
+		expect(result.saved).toBe(true);
+		expect(result.title).toBe('Helpful Testing Title');
+
+		const chat = await t.run(async (ctx) => await ctx.db.get(chatId));
+		expect(chat?.title).toBe('Helpful Testing Title');
+	});
+
+	it('does not overwrite existing custom titles unless forced', async () => {
+		await t.run(async (ctx) => {
+			await ctx.db.patch(chatId, { title: 'Custom Existing Title' });
+		});
+
+		const result = await t.action(internal.chats.generateAndSetTitleInternal, {
+			chatId,
+			userId,
+			seedText: 'first message',
+			length: 'standard',
+			provider: 'osschat',
+			force: false,
+		});
+
+		expect(result.saved).toBe(false);
+		expect(result.reason).toBe('title_already_set');
+	});
 });

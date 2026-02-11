@@ -1,7 +1,6 @@
 import "./polyfills";
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { streamLLM } from "./streaming";
 import { api } from "./_generated/api";
 import { authComponent, createAuth } from "./auth";
 import { getAllowedOrigins } from "./lib/origins";
@@ -34,20 +33,6 @@ http.route({
       },
     );
   }),
-});
-
-// LLM streaming endpoint - runs on Convex infrastructure for persistence
-http.route({
-  path: "/stream-llm",
-  method: "POST",
-  handler: streamLLM,
-});
-
-// Handle CORS preflight for streaming endpoint
-http.route({
-  path: "/stream-llm",
-  method: "OPTIONS",
-  handler: streamLLM,
 });
 
 // Public stats endpoint for sign-in page
