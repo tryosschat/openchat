@@ -81,34 +81,45 @@ export const createStream = mutation({
  * 1. The message has content from periodic saves
  * 2. The message status tells us if streaming is still in progress
  * We use the message's status (not "done") to determine the correct streaming state.
+ *
+ * SECURITY: Requires authentication and verifies ownership of the stream.
  */
 export const getStreamBody = query({
 	args: {
 		streamId: StreamIdValidator,
+		userId: v.id("users"),
 	},
 	handler: async (ctx, args) => {
-		// Get stream body from persistent streaming - returns { text, status }
-		const streamBody = await persistentTextStreaming.getStreamBody(ctx, args.streamId as StreamId);
+		// Authenticate the user
+		const userId = await requireAuthUserId(ctx, args.userId);
 
-		// Always fetch the message to check its actual status and get reasoning
+		// Always fetch the message to check ownership, actual status, and get reasoning
 		const message = await ctx.db
 			.query("messages")
 			.withIndex("by_stream_id", (q) => q.eq("streamId", args.streamId as string))
 			.unique();
 
+		// Verify ownership - message must belong to the authenticated user
+		if (!message || message.userId !== userId) {
+			throw new Error("Stream not found or access denied");
+		}
+
+		// Get stream body from persistent streaming - returns { text, status }
+		const streamBody = await persistentTextStreaming.getStreamBody(ctx, args.streamId as StreamId);
+
 		// If stream body has content and is still streaming, return it with reasoning from message
 		if (streamBody && typeof streamBody === "object" && streamBody.text) {
 			return {
 				...streamBody,
-				reasoning: message?.reasoning ?? null,
-				thinkingTimeMs: message?.thinkingTimeMs ?? null,
+				reasoning: message.reasoning ?? null,
+				thinkingTimeMs: message.thinkingTimeMs ?? null,
 			};
 		}
 
 		// If stream body is empty but message has content, use message content
 		// CRITICAL: Use the message's status, not hardcoded "done"
 		// This allows stream reconnection to show content while still detecting streaming
-		if (message?.content) {
+		if (message.content) {
 			// Determine the correct status based on message status
 			const status = message.status === "streaming" ? "streaming" : "done";
 			return {
@@ -144,10 +155,13 @@ export const getStreamMessage = internalQuery({
 
 /**
  * Get stream status and content by querying the associated message
+ *
+ * SECURITY: Requires authentication and verifies ownership of the stream.
  */
 export const getStreamStatus = query({
 	args: {
 		streamId: v.string(),
+		userId: v.id("users"),
 	},
 	returns: v.object({
 		body: v.union(v.string(), v.null()),
@@ -156,12 +170,20 @@ export const getStreamStatus = query({
 		thinkingTimeMs: v.optional(v.union(v.number(), v.null())),
 	}),
 	handler: async (ctx, args) => {
+		// Authenticate the user
+		const userId = await requireAuthUserId(ctx, args.userId);
+
 		// Find the message associated with this stream first
-		// We need this to check if stream completed and fall back to message content
+		// We need this to check ownership, if stream completed, and fall back to message content
 		const message = await ctx.db
 			.query("messages")
 			.withIndex("by_stream_id", (q) => q.eq("streamId", args.streamId))
 			.unique();
+
+		// Verify ownership - message must belong to the authenticated user
+		if (!message || message.userId !== userId) {
+			throw new Error("Stream not found or access denied");
+		}
 
 		// Get the stream body - returns {status, text} object
 		const rawBody = await persistentTextStreaming.getStreamBody(ctx, args.streamId as StreamId);
@@ -179,15 +201,15 @@ export const getStreamStatus = query({
 		// 1. Stream completed while user was reloading
 		// 2. Persistent streaming cleared the body
 		// 3. But message.content has the final content
-		if (!body && message?.content) {
+		if (!body && message.content) {
 			body = message.content;
 		}
 
 		return {
 			body,
-			status: (message?.status as "streaming" | "completed" | "error") ?? null,
-			reasoning: message?.reasoning ?? null,
-			thinkingTimeMs: message?.thinkingTimeMs ?? null,
+			status: (message.status as "streaming" | "completed" | "error") ?? null,
+			reasoning: message.reasoning ?? null,
+			thinkingTimeMs: message.thinkingTimeMs ?? null,
 		};
 	},
 });
