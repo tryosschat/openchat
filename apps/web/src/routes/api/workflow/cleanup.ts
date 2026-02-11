@@ -2,8 +2,6 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import { json } from "@tanstack/react-start";
 import { serve } from "@upstash/workflow/tanstack";
-import { api } from "@server/convex/_generated/api";
-import { createConvexServerClient } from "@/lib/convex-server";
 import { workflowClient } from "@/lib/upstash";
 
 type CleanupPayload = {
@@ -12,10 +10,14 @@ type CleanupPayload = {
 };
 
 const MAX_CLEANUP_BATCHES = 1_000;
+const CONVEX_SITE_URL =
+	process.env.VITE_CONVEX_SITE_URL || process.env.CONVEX_SITE_URL;
 
 function isLocalWorkflowRequest(request: Request): boolean {
 	const hostname = new URL(request.url).hostname;
-	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+	return (
+		hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]"
+	);
 }
 
 function parseCleanupPayload(raw: unknown): CleanupPayload | null {
@@ -81,7 +83,6 @@ async function runCleanupInline(payload: CleanupPayload): Promise<{
 		throw new Error("WORKFLOW_CLEANUP_TOKEN is not configured");
 	}
 
-	const convexClient = createConvexServerClient();
 	const retentionDays = payload.retentionDays ?? 90;
 	const batchSize = payload.batchSize ?? 100;
 
@@ -91,7 +92,7 @@ async function runCleanupInline(payload: CleanupPayload): Promise<{
 
 	while (batches < MAX_CLEANUP_BATCHES) {
 		batches += 1;
-		const preview = await convexClient.action(api.cleanupAction.runCleanupBatchForWorkflow, {
+		const preview = await runCleanupBatch({
 			workflowToken,
 			retentionDays,
 			batchSize,
@@ -101,7 +102,7 @@ async function runCleanupInline(payload: CleanupPayload): Promise<{
 			break;
 		}
 
-		const deletedBatch = await convexClient.action(api.cleanupAction.runCleanupBatchForWorkflow, {
+		const deletedBatch = await runCleanupBatch({
 			workflowToken,
 			retentionDays,
 			batchSize,
@@ -128,15 +129,50 @@ async function runCleanupInline(payload: CleanupPayload): Promise<{
 	};
 }
 
+async function runCleanupBatch(args: {
+	workflowToken: string;
+	retentionDays: number;
+	batchSize: number;
+	dryRun: boolean;
+}): Promise<{ success: boolean; deleted: number; dryRun: boolean; cutoffDate: string }> {
+	if (!CONVEX_SITE_URL) {
+		throw new Error("CONVEX_SITE_URL is not configured");
+	}
+
+	const response = await fetch(`${CONVEX_SITE_URL}/workflow/cleanup-batch`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(args),
+	});
+
+	if (!response.ok) {
+		const text = await response.text();
+		throw new Error(text || `Cleanup batch failed (${response.status})`);
+	}
+
+	return (await response.json()) as {
+		success: boolean;
+		deleted: number;
+		dryRun: boolean;
+		cutoffDate: string;
+	};
+}
+
 const workflow = serve<CleanupPayload>(async (context) => {
+	const payload = parseCleanupPayload(context.requestPayload);
+	if (!payload) {
+		throw new Error("Invalid cleanup payload");
+	}
+
 	const workflowToken = process.env.WORKFLOW_CLEANUP_TOKEN;
 	if (!workflowToken) {
 		throw new Error("WORKFLOW_CLEANUP_TOKEN is not configured");
 	}
 
-	const convexClient = createConvexServerClient();
-	const retentionDays = context.requestPayload.retentionDays ?? 90;
-	const batchSize = context.requestPayload.batchSize ?? 100;
+	const retentionDays = payload.retentionDays ?? 90;
+	const batchSize = payload.batchSize ?? 100;
 
 	let batches = 0;
 	let totalDeleted = 0;
@@ -145,7 +181,7 @@ const workflow = serve<CleanupPayload>(async (context) => {
 	while (batches < MAX_CLEANUP_BATCHES) {
 		batches += 1;
 		const preview = await context.run(`query-batch-${batches}`, async () => {
-			return convexClient.action(api.cleanupAction.runCleanupBatchForWorkflow, {
+			return runCleanupBatch({
 				workflowToken,
 				retentionDays,
 				batchSize,
@@ -158,7 +194,7 @@ const workflow = serve<CleanupPayload>(async (context) => {
 		}
 
 		const deletedBatch = await context.run(`delete-batch-${batches}`, async () => {
-			return convexClient.action(api.cleanupAction.runCleanupBatchForWorkflow, {
+			return runCleanupBatch({
 				workflowToken,
 				retentionDays,
 				batchSize,

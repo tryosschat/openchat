@@ -1,7 +1,7 @@
 import "./polyfills";
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { authComponent, createAuth } from "./auth";
 import { getAllowedOrigins, getCorsOrigin } from "./lib/origins";
 
@@ -61,6 +61,48 @@ http.route({
     return new Response(JSON.stringify(stats), {
       status: 200,
       headers,
+    });
+  }),
+});
+
+http.route({
+  path: "/workflow/cleanup-batch",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON payload" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const payload = body as {
+      workflowToken?: unknown;
+      retentionDays?: unknown;
+      batchSize?: unknown;
+      dryRun?: unknown;
+    };
+
+    if (typeof payload.workflowToken !== "string" || payload.workflowToken.trim().length === 0) {
+      return new Response(JSON.stringify({ error: "workflowToken is required" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const result = await ctx.runAction(internal.cleanupAction.runCleanupBatchForWorkflow, {
+      workflowToken: payload.workflowToken.trim(),
+      retentionDays: typeof payload.retentionDays === "number" ? payload.retentionDays : undefined,
+      batchSize: typeof payload.batchSize === "number" ? payload.batchSize : undefined,
+      dryRun: typeof payload.dryRun === "boolean" ? payload.dryRun : undefined,
+    });
+
+    return new Response(JSON.stringify(result), {
+      status: 200,
+      headers: { "content-type": "application/json" },
     });
   }),
 });

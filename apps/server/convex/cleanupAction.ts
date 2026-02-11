@@ -1,7 +1,7 @@
 "use node";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { action } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
@@ -11,7 +11,7 @@ function safeCompare(a: string, b: string, hmacKey: string): boolean {
 	return timingSafeEqual(hmacA, hmacB);
 }
 
-export const runCleanupBatchForWorkflow = action({
+export const runCleanupBatchForWorkflow = internalAction({
 	args: {
 		workflowToken: v.string(),
 		retentionDays: v.optional(v.number()),

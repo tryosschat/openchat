@@ -17,69 +17,92 @@ const modelsIpRatelimit = upstashRedis
 	: null;
 
 async function fetchModelsFromOpenRouter(): Promise<Response> {
-	let response: globalThis.Response;
 	try {
-		response = await fetch(OPENROUTER_MODELS_URL, {
+		const response = await fetch(OPENROUTER_MODELS_URL, {
 			headers: {
 				Accept: "application/json",
 			},
 			signal: AbortSignal.timeout(OPENROUTER_FETCH_TIMEOUT_MS),
 		});
+
+		if (!response.ok) {
+			return json(
+				{ error: "Upstream service error" },
+				{ status: 502 },
+			);
+		}
+
+		const payload = await response.text();
+
+		if (upstashRedis) {
+			try {
+				await upstashRedis.set(MODELS_CACHE_KEY, payload, {
+					ex: MODELS_CACHE_TTL_SECONDS,
+				});
+			} catch (error) {
+				console.warn("[Models API] Failed to write cache:", error);
+			}
+		}
+
+		return new Response(payload, {
+			status: 200,
+			headers: {
+				"Content-Type": "application/json",
+				"Cache-Control": "no-store",
+				"X-Models-Cache": "MISS",
+			},
+		});
 	} catch (error) {
 		console.warn("[Models API] OpenRouter fetch failed:", error);
 		return json({ error: "Upstream service unavailable" }, { status: 502 });
 	}
+}
 
-	if (!response.ok) {
-		return json(
-			{ error: "Upstream service error" },
-			{ status: 502 },
-		);
+function getClientIp(request: Request): string | null {
+	const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
+	if (cfConnectingIp) return cfConnectingIp;
+
+	const realIp = request.headers.get("x-real-ip")?.trim();
+	if (realIp) return realIp;
+
+	const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
+	if (vercelForwardedFor) {
+		const first = vercelForwardedFor.split(",")[0]?.trim();
+		if (first) return first;
 	}
 
-	const payload = await response.text();
-
-	if (upstashRedis) {
-		try {
-			await upstashRedis.set(MODELS_CACHE_KEY, payload, {
-				ex: MODELS_CACHE_TTL_SECONDS,
-			});
-		} catch (error) {
-			console.warn("[Models API] Failed to write cache:", error);
-		}
+	const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
+	if (forwardedFor) {
+		const first = forwardedFor.split(",")[0]?.trim();
+		if (first) return first;
 	}
 
-	return new Response(payload, {
-		status: 200,
-		headers: {
-			"Content-Type": "application/json",
-			"Cache-Control": "no-store",
-			"X-Models-Cache": "MISS",
-		},
-	});
+	return null;
 }
 
 export const Route = createFileRoute("/api/models")({
 	server: {
 		handlers: {
-		GET: async ({ request }) => {
-			if (modelsIpRatelimit) {
-				const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-				const rl = await modelsIpRatelimit.limit(ip);
-				if (!rl.success) {
-					return json({ error: "Rate limit exceeded" }, { status: 429 });
+			GET: async ({ request }) => {
+				if (modelsIpRatelimit) {
+					const ip = getClientIp(request);
+					if (!ip) {
+						return json({ error: "Unable to identify client" }, { status: 400 });
+					}
+					const rl = await modelsIpRatelimit.limit(ip);
+					if (!rl.success) {
+						return json({ error: "Rate limit exceeded" }, { status: 429 });
+					}
 				}
-			}
 
-			if (!upstashRedis) {
-				return fetchModelsFromOpenRouter();
-			}
+				if (!upstashRedis) {
+					return fetchModelsFromOpenRouter();
+				}
 
 				try {
 					const cached = await upstashRedis.get<string | Record<string, unknown>>(MODELS_CACHE_KEY);
 					if (cached) {
-						const body =
-							typeof cached === "string" ? cached : JSON.stringify(cached);
+						const body = typeof cached === "string" ? cached : JSON.stringify(cached);
 						return new Response(body, {
 							status: 200,
 							headers: {

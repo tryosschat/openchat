@@ -56,12 +56,29 @@ async function getConnectedClient(): Promise<UpstashRedis | null> {
 }
 
 function parseStreamMeta(value: unknown): StreamMeta | null {
-	if (typeof value !== "string") return null;
-	try {
-		return JSON.parse(value) as StreamMeta;
-	} catch {
-		return null;
+	if (!value) return null;
+	if (typeof value === "string") {
+		try {
+			return JSON.parse(value) as StreamMeta;
+		} catch {
+			return null;
+		}
 	}
+	if (typeof value === "object") {
+		const candidate = value as Partial<StreamMeta>;
+		if (
+			(candidate.status === "streaming" ||
+				candidate.status === "completed" ||
+				candidate.status === "error") &&
+			typeof candidate.chatId === "string" &&
+			typeof candidate.userId === "string" &&
+			typeof candidate.messageId === "string" &&
+			typeof candidate.startedAt === "number"
+		) {
+			return candidate as StreamMeta;
+		}
+	}
+	return null;
 }
 
 export async function initStream(

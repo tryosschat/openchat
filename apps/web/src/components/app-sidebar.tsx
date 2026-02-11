@@ -448,14 +448,14 @@ export function AppSidebar({
         title: generatedTitle,
         force: true,
       });
-	    } catch (error) {
-	      console.warn("[Chat] Title regeneration failed:", error);
-	      const message = error instanceof Error ? error.message : "Failed to regenerate chat name";
-	      toast.error(message);
-	    } finally {
-	      setTitleGenerating(chatId, false);
-	    }
-	  };
+      } catch (error) {
+        console.warn("[Chat] Title regeneration failed:", error);
+        const message = error instanceof Error ? error.message : "Failed to regenerate chat name";
+        toast.error(message);
+      } finally {
+        setTitleGenerating(chatId, false);
+      }
+    };
 
   const handleDeleteChat = useCallback(
     async (chatId: string) => {

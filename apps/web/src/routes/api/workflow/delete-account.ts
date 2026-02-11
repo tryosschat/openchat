@@ -6,11 +6,12 @@ import type { Id } from "@server/convex/_generated/dataModel";
 import { createConvexServerClient } from "@/lib/convex-server";
 import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth";
 import { authRatelimit, upstashRedis, workflowClient } from "@/lib/upstash";
+import { getWorkflowAuthToken, storeWorkflowAuthToken } from "@/lib/workflow-auth-token";
 
 type DeleteAccountPayload = {
-	userId: string;
-	externalId: string;
-	authToken?: string;
+	userId?: string;
+	externalId?: string;
+	authTokenRef?: string;
 	batchSize?: number;
 };
 
@@ -22,21 +23,27 @@ type DeleteStep =
 
 const MAX_DELETE_BATCHES = 500;
 
+const EMPTY_DELETE_RESULT = {
+	success: false,
+	deleted: {
+		streamJobs: 0,
+		messages: 0,
+		chats: 0,
+		files: 0,
+		redisKeys: 0,
+	},
+};
+
 function parseDeletePayload(raw: unknown): DeleteAccountPayload | null {
 	if (!raw || typeof raw !== "object") return null;
 
 	const payload = raw as Record<string, unknown>;
-	if (typeof payload.userId !== "string" || payload.userId.trim().length === 0) {
-		return null;
-	}
-	if (typeof payload.externalId !== "string" || payload.externalId.trim().length === 0) {
-		return null;
-	}
 
 	const parsed: DeleteAccountPayload = {
-		userId: payload.userId.trim(),
-		externalId: payload.externalId.trim(),
-		authToken: typeof payload.authToken === "string" ? payload.authToken : undefined,
+		userId: typeof payload.userId === "string" ? payload.userId.trim() : undefined,
+		externalId:
+			typeof payload.externalId === "string" ? payload.externalId.trim() : undefined,
+		authTokenRef: typeof payload.authTokenRef === "string" ? payload.authTokenRef : undefined,
 	};
 
 	if (payload.batchSize !== undefined) {
@@ -92,7 +99,9 @@ async function clearRedisUserKeys(userId: string): Promise<number> {
 
 function isLocalWorkflowRequest(request: Request): boolean {
 	const hostname = new URL(request.url).hostname;
-	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+	return (
+		hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]"
+	);
 }
 
 function getWorkflowTriggerHeaders(): Record<string, string> {
@@ -109,6 +118,9 @@ async function runDeleteAccountInline(
 	deleted: { streamJobs: number; messages: number; chats: number; files: number; redisKeys: number };
 }> {
 	const { userId, externalId, batchSize } = payload;
+	if (!userId || !externalId) {
+		throw new Error("Invalid delete-account payload");
+	}
 	const convexClient = createConvexServerClient(authToken);
 	const convexUserId = userId as Id<"users">;
 
@@ -159,9 +171,19 @@ async function runDeleteAccountInline(
 
 const workflow = serve<DeleteAccountPayload>(async (context) => {
 	const { userId, externalId, batchSize } = context.requestPayload;
-	const authToken = context.requestPayload.authToken;
+	if (!userId || !externalId) {
+		return EMPTY_DELETE_RESULT;
+	}
+	const authTokenRef = context.requestPayload.authTokenRef;
+	if (!authTokenRef) {
+		return EMPTY_DELETE_RESULT;
+	}
+
+	const authToken = await context.run("resolve-auth", async () => {
+		return getWorkflowAuthToken(authTokenRef);
+	});
 	if (!authToken) {
-		throw new Error("Unauthorized");
+		return EMPTY_DELETE_RESULT;
 	}
 
 	const convexClient = createConvexServerClient(authToken);
@@ -270,7 +292,6 @@ export const Route = createFileRoute("/api/workflow/delete-account")({
 					...payload,
 					userId: authConvexUser._id,
 					externalId: authUser.id,
-					authToken,
 				};
 
 				if (isLocalWorkflowRequest(request)) {
@@ -292,10 +313,21 @@ export const Route = createFileRoute("/api/workflow/delete-account")({
 				}
 
 				try {
+					const authTokenRef = await storeWorkflowAuthToken(authToken);
+					if (!authTokenRef) {
+						return json(
+							{ error: "Workflow auth cache is not configured" },
+							{ status: 500 },
+						);
+					}
+
 					const triggerHeaders = getWorkflowTriggerHeaders();
 					const { workflowRunId } = await workflowClient.trigger({
 						url: request.url,
-						body: normalizedPayload,
+						body: {
+							...normalizedPayload,
+							authTokenRef,
+						},
 						headers: triggerHeaders,
 					});
 					return json({ queued: true, workflowRunId }, { status: 202 });

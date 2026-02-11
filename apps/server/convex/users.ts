@@ -753,20 +753,30 @@ export const deleteUserRecord = internalMutation({
 			paginationOpts: { cursor: null, numItems: 1 },
 		});
 
-		const readStatuses = await ctx.db
-			.query("chatReadStatus")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
-			.collect();
-		for (const status of readStatuses) {
-			await ctx.db.delete(status._id);
+		while (true) {
+			const readStatuses = await ctx.db
+				.query("chatReadStatus")
+				.withIndex("by_user", (q) => q.eq("userId", args.userId))
+				.take(100);
+			if (readStatuses.length === 0) {
+				break;
+			}
+			for (const status of readStatuses) {
+				await ctx.db.delete(status._id);
+			}
 		}
 
-		const templates = await ctx.db
-			.query("promptTemplates")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
-			.collect();
-		for (const template of templates) {
-			await ctx.db.delete(template._id);
+		while (true) {
+			const templates = await ctx.db
+				.query("promptTemplates")
+				.withIndex("by_user", (q) => q.eq("userId", args.userId))
+				.take(100);
+			if (templates.length === 0) {
+				break;
+			}
+			for (const template of templates) {
+				await ctx.db.delete(template._id);
+			}
 		}
 
 		const profile = await ctx.db
@@ -837,8 +847,8 @@ export const deleteAccountWorkflowStep = action({
 				const result: { success: boolean } = await ctx.runMutation(
 					internal.users.deleteUserRecord,
 					{
-					userId,
-					externalId: args.externalId,
+						userId,
+						externalId: args.externalId,
 					},
 				);
 				return {

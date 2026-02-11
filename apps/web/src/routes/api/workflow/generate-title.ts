@@ -7,6 +7,7 @@ import { createConvexServerClient } from "@/lib/convex-server";
 import { decryptSecret } from "@/lib/server-crypto";
 import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth";
 import { authRatelimit, workflowClient } from "@/lib/upstash";
+import { getWorkflowAuthToken, storeWorkflowAuthToken } from "@/lib/workflow-auth-token";
 
 const TITLE_MODEL_ID = "google/gemini-2.5-flash-lite";
 const TITLE_MAX_LENGTH = 200;
@@ -17,7 +18,7 @@ type TitleProvider = "osschat" | "openrouter";
 type GenerateTitlePayload = {
 	chatId: string;
 	userId: string;
-	authToken?: string;
+	authTokenRef?: string;
 	seedText?: string;
 	length: TitleLength;
 	provider: TitleProvider;
@@ -61,7 +62,7 @@ function parseGenerateTitlePayload(raw: unknown): GenerateTitlePayload | null {
 	return {
 		chatId: payload.chatId.trim(),
 		userId: payload.userId.trim(),
-		authToken: typeof payload.authToken === "string" ? payload.authToken : undefined,
+		authTokenRef: typeof payload.authTokenRef === "string" ? payload.authTokenRef : undefined,
 		seedText: payload.seedText,
 		length: payload.length,
 		provider: payload.provider,
@@ -91,7 +92,9 @@ function sanitizeGeneratedTitle(input: string): string {
 
 function isLocalWorkflowRequest(request: Request): boolean {
 	const hostname = new URL(request.url).hostname;
-	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+	return (
+		hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]"
+	);
 }
 
 function getWorkflowTriggerHeaders(): Record<string, string> {
@@ -174,9 +177,16 @@ const workflow = serve<GenerateTitlePayload>(async (context) => {
 		mode = "auto",
 	} = payload;
 
-	const authToken = payload.authToken;
+	const authTokenRef = payload.authTokenRef;
+	if (!authTokenRef) {
+		return { saved: false, reason: "unauthorized" } as const;
+	}
+
+	const authToken = await context.run("resolve-auth", async () => {
+		return getWorkflowAuthToken(authTokenRef);
+	});
 	if (!authToken) {
-		throw new Error("Unauthorized");
+		return { saved: false, reason: "unauthorized" } as const;
 	}
 
 	const convexClient = createConvexServerClient(authToken);
@@ -228,7 +238,7 @@ const workflow = serve<GenerateTitlePayload>(async (context) => {
 			"HTTP-Referer": process.env.VITE_CONVEX_SITE_URL || "https://osschat.io",
 			"X-Title": "OSSChat",
 		},
-		body: {
+		body: JSON.stringify({
 			model: TITLE_MODEL_ID,
 			messages: [
 				{ role: "system", content: systemPrompt },
@@ -236,7 +246,7 @@ const workflow = serve<GenerateTitlePayload>(async (context) => {
 			],
 			temperature: 0.2,
 			max_tokens: 32,
-		},
+		}),
 		retries: 2,
 		timeout: "30s",
 	});
@@ -318,7 +328,6 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 				const normalizedPayload: GenerateTitlePayload = {
 					...payload,
 					userId: authConvexUser._id,
-					authToken,
 				};
 
 				if (isLocalWorkflowRequest(request)) {
@@ -344,10 +353,21 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 				}
 
 				try {
+					const authTokenRef = await storeWorkflowAuthToken(authToken);
+					if (!authTokenRef) {
+						return json(
+							{ error: "Workflow auth cache is not configured" },
+							{ status: 500 },
+						);
+					}
+
 					const headers = getWorkflowTriggerHeaders();
 					const { workflowRunId } = await workflowClient.trigger({
 						url: request.url,
-						body: normalizedPayload,
+						body: {
+							...normalizedPayload,
+							authTokenRef,
+						},
 						headers,
 					});
 					return json({ queued: true, workflowRunId }, { status: 202 });

@@ -6,12 +6,13 @@ import type { Id } from "@server/convex/_generated/dataModel";
 import { createConvexServerClient } from "@/lib/convex-server";
 import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth";
 import { exportRatelimit, workflowClient } from "@/lib/upstash";
+import { getWorkflowAuthToken, storeWorkflowAuthToken } from "@/lib/workflow-auth-token";
 
 type ExportFormat = "markdown" | "json";
 type ExportChatPayload = {
 	chatId: string;
 	userId: string;
-	authToken?: string;
+	authTokenRef?: string;
 	format?: ExportFormat;
 };
 
@@ -60,14 +61,25 @@ function parseExportPayload(raw: unknown): ExportChatPayload | null {
 	return {
 		chatId: payload.chatId.trim(),
 		userId: payload.userId.trim(),
-		authToken: typeof payload.authToken === "string" ? payload.authToken : undefined,
+		authTokenRef: typeof payload.authTokenRef === "string" ? payload.authTokenRef : undefined,
 		format,
 	};
 }
 
 function isLocalWorkflowRequest(request: Request): boolean {
 	const hostname = new URL(request.url).hostname;
-	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+	return (
+		hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]"
+	);
+}
+
+
+function formatRole(role: string): string {
+	if (role === "assistant") return "Assistant";
+	if (role === "system") return "System";
+	if (role === "tool") return "Tool";
+	if (role === "user") return "User";
+	return "Message";
 }
 
 function getWorkflowTriggerHeaders(): Record<string, string> {
@@ -88,7 +100,7 @@ function formatExportMarkdown(data: ChatExportData): string {
 	lines.push("");
 
 	for (const message of data.messages) {
-		const role = message.role === "assistant" ? "Assistant" : "User";
+		const role = formatRole(message.role);
 		lines.push(`## ${role} (${new Date(message.createdAt).toISOString()})`);
 		lines.push("");
 		lines.push(message.content || "_No content_");
@@ -144,9 +156,20 @@ async function runExportChatInline(
 const workflow = serve<ExportChatPayload>(async (context) => {
 	const { chatId, userId, format = "markdown" } = context.requestPayload;
 
-	const authToken = context.requestPayload.authToken;
+	const authTokenRef = context.requestPayload.authTokenRef;
+	if (!authTokenRef) {
+		return {
+			error: "Unauthorized",
+		};
+	}
+
+	const authToken = await context.run("resolve-auth", async () => {
+		return getWorkflowAuthToken(authTokenRef);
+	});
 	if (!authToken) {
-		throw new Error("Unauthorized");
+		return {
+			error: "Unauthorized",
+		};
 	}
 
 	const convexClient = createConvexServerClient(authToken);
@@ -157,7 +180,9 @@ const workflow = serve<ExportChatPayload>(async (context) => {
 		});
 	});
 	if (!chatExportData) {
-		throw new Error("Chat not found");
+		return {
+			error: "Chat not found",
+		};
 	}
 
 	const formattedExport = await context.run("format-export", async () => {
@@ -231,7 +256,6 @@ export const Route = createFileRoute("/api/workflow/export-chat")({
 				const normalizedPayload: ExportChatPayload = {
 					...payload,
 					userId: authConvexUser._id,
-					authToken,
 				};
 
 				if (isLocalWorkflowRequest(request)) {
@@ -254,10 +278,21 @@ export const Route = createFileRoute("/api/workflow/export-chat")({
 				}
 
 				try {
+					const authTokenRef = await storeWorkflowAuthToken(authToken);
+					if (!authTokenRef) {
+						return json(
+							{ error: "Workflow auth cache is not configured" },
+							{ status: 500 },
+						);
+					}
+
 					const triggerHeaders = getWorkflowTriggerHeaders();
 					const { workflowRunId } = await workflowClient.trigger({
 						url: request.url,
-						body: normalizedPayload,
+						body: {
+							...normalizedPayload,
+							authTokenRef,
+						},
 						headers: triggerHeaders,
 					});
 					return json({ queued: true, workflowRunId }, { status: 202 });

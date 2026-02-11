@@ -57,28 +57,28 @@ export const Route = createFileRoute("/api/openrouter-key")({
 
 					const body = await request.json();
 					const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
-						if (!apiKey) {
-							return json({ error: "apiKey is required" }, { status: 400 });
-						}
+					if (!apiKey) {
+						return json({ error: "apiKey is required" }, { status: 400 });
+					}
 
-						const convexUserId = await getConvexUserId(authUser, request);
-						if (!convexUserId) {
-							return json({ error: "Unauthorized" }, { status: 401 });
+					const convexUserId = await getConvexUserId(authUser, request);
+					if (!convexUserId) {
+						return json({ error: "Unauthorized" }, { status: 401 });
+					}
+					if (authRatelimit) {
+						const rate = await authRatelimit.limit(`openrouter-key:post:${convexUserId}`);
+						if (!rate.success) {
+							return json(
+								{ error: "Too many key update attempts. Please try again shortly." },
+								{ status: 429 },
+							);
 						}
-						if (authRatelimit) {
-							const rate = await authRatelimit.limit(`openrouter-key:post:${convexUserId}`);
-							if (!rate.success) {
-								return json(
-									{ error: "Too many key update attempts. Please try again shortly." },
-									{ status: 429 },
-								);
-							}
-						}
+					}
 
-						const convexClient = await getConvexClientForRequest(request);
-						if (!convexClient) {
-							return json({ error: "Unauthorized" }, { status: 401 });
-						}
+					const convexClient = await getConvexClientForRequest(request);
+					if (!convexClient) {
+						return json({ error: "Unauthorized" }, { status: 401 });
+					}
 
 					const encryptedKey = encryptSecret(apiKey);
 					await convexClient.mutation(api.users.saveOpenRouterKey, {
@@ -99,28 +99,28 @@ export const Route = createFileRoute("/api/openrouter-key")({
 						return json({ error: "Invalid origin" }, { status: 403 });
 					}
 					const authUser = await getAuthUser(request);
-						if (!authUser) {
-							return json({ error: "Unauthorized" }, { status: 401 });
-						}
+					if (!authUser) {
+						return json({ error: "Unauthorized" }, { status: 401 });
+					}
 
-						const convexUserId = await getConvexUserId(authUser, request);
-						if (!convexUserId) {
-							return json({ error: "Unauthorized" }, { status: 401 });
+					const convexUserId = await getConvexUserId(authUser, request);
+					if (!convexUserId) {
+						return json({ error: "Unauthorized" }, { status: 401 });
+					}
+					if (authRatelimit) {
+						const rate = await authRatelimit.limit(`openrouter-key:delete:${convexUserId}`);
+						if (!rate.success) {
+							return json(
+								{ error: "Too many key update attempts. Please try again shortly." },
+								{ status: 429 },
+							);
 						}
-						if (authRatelimit) {
-							const rate = await authRatelimit.limit(`openrouter-key:delete:${convexUserId}`);
-							if (!rate.success) {
-								return json(
-									{ error: "Too many key update attempts. Please try again shortly." },
-									{ status: 429 },
-								);
-							}
-						}
+					}
 
-						const convexClient = await getConvexClientForRequest(request);
-						if (!convexClient) {
-							return json({ error: "Unauthorized" }, { status: 401 });
-						}
+					const convexClient = await getConvexClientForRequest(request);
+					if (!convexClient) {
+						return json({ error: "Unauthorized" }, { status: 401 });
+					}
 
 					await convexClient.mutation(api.users.removeOpenRouterKey, {
 						userId: convexUserId,
