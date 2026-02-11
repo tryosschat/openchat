@@ -13,10 +13,6 @@ const SAFE_CSS_KEY_PATTERN = /^[a-zA-Z0-9_-]+$/
 const SAFE_CSS_COLOR_PATTERN =
 	/^(#[0-9a-fA-F]{3,8}|rgba?\(\s*[\d.%,\s]+\)|hsla?\(\s*[\d.%,\s/]+\)|oklch\(\s*[\d.%,\s/]+\)|oklab\(\s*[\d.%,\s/]+\)|color\(\s*[a-zA-Z0-9\s/.%-]+\)|[a-zA-Z]+|var\(--[a-zA-Z0-9_-]+\))$/
 
-/**
- * Sanitizes a CSS custom property key to prevent injection
- * Returns null if the key is invalid
- */
 function sanitizeCssKey(key: string): string | null {
 	if (typeof key !== "string" || !SAFE_CSS_KEY_PATTERN.test(key)) {
 		console.warn(`[ChartStyle] Invalid CSS key rejected: ${key}`)
@@ -25,15 +21,10 @@ function sanitizeCssKey(key: string): string | null {
 	return key
 }
 
-/**
- * Sanitizes a CSS color value to prevent injection
- * Returns null if the color is invalid
- */
 function sanitizeCssColor(color: string): string | null {
 	if (typeof color !== "string") {
 		return null
 	}
-	// Trim whitespace and check against pattern
 	const trimmed = color.trim()
 	if (!SAFE_CSS_COLOR_PATTERN.test(trimmed)) {
 		console.warn(`[ChartStyle] Invalid CSS color rejected: ${color}`)
