@@ -1164,12 +1164,17 @@ export const executeStream = internalAction({
 					toolPart.state = "input-available";
 					pendingUpdateCounter++;
 
-						try {
-							const rawOutput = await execute({ query: searchQuery });
-							const compactOutput = compactWebSearchOutput(rawOutput);
+					try {
+						// Increment FIRST — this mutation is serializable in Convex,
+						// so it will throw if the limit is already reached.
+						// This prevents the TOCTOU race condition where two concurrent
+						// requests could both pass the initial check and exceed the limit.
 						await ctx.runMutation(internal.search.incrementSearchUsageInternal, {
 							userId: job.userId,
 						});
+
+						const rawOutput = await execute({ query: searchQuery });
+						const compactOutput = compactWebSearchOutput(rawOutput);
 						toolPart.output = compactOutput;
 						toolPart.state = "output-available";
 						pendingUpdateCounter++;
@@ -1184,15 +1189,23 @@ export const executeStream = internalAction({
 										: chunk;
 								contextChunks.push(trimmedChunk);
 								remainingContextChars -= trimmedChunk.length;
-								}
 							}
-						} catch (error) {
-							const errorText =
-								error instanceof Error ? error.message : "Web search failed";
-							toolPart.errorText = errorText;
+						}
+					} catch (error) {
+						const errorText =
+							error instanceof Error ? error.message : "Web search failed";
+						// If increment threw due to limit, stop searching
+						if (errorText.includes("Daily search limit reached")) {
+							toolPart.errorText = "Daily search limit reached";
 							toolPart.state = "output-error";
 							pendingUpdateCounter++;
+							await persistProgress(true);
+							break;
 						}
+						toolPart.errorText = errorText;
+						toolPart.state = "output-error";
+						pendingUpdateCounter++;
+					}
 
 					await persistProgress(true);
 				}
