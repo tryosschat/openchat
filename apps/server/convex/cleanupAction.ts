@@ -35,11 +35,11 @@ export const runCleanupBatchForWorkflow = action({
 
 		// Bounds validation — prevent accidental full-purge or oversized batches
 		const retentionDays = args.retentionDays ?? 90;
-		if (retentionDays < 1 || retentionDays > 3650) {
+		if (!Number.isFinite(retentionDays) || retentionDays < 1 || retentionDays > 3650) {
 			throw new Error("retentionDays must be between 1 and 3650");
 		}
 		const batchSize = args.batchSize ?? 100;
-		if (batchSize < 1 || batchSize > 1000) {
+		if (!Number.isFinite(batchSize) || batchSize < 1 || batchSize > 1000) {
 			throw new Error("batchSize must be between 1 and 1000");
 		}
 

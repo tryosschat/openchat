@@ -25,7 +25,8 @@ async function fetchModelsFromOpenRouter(): Promise<Response> {
 			},
 			signal: AbortSignal.timeout(OPENROUTER_FETCH_TIMEOUT_MS),
 		});
-	} catch {
+	} catch (error) {
+		console.warn("[Models API] OpenRouter fetch failed:", error);
 		return json({ error: "Upstream service unavailable" }, { status: 502 });
 	}
 
