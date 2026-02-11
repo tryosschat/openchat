@@ -5,7 +5,12 @@ import { api } from "@server/convex/_generated/api";
 import type { Id } from "@server/convex/_generated/dataModel";
 import { createConvexServerClient } from "@/lib/convex-server";
 import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth";
-import { authRatelimit, upstashRedis, workflowClient } from "@/lib/upstash";
+import {
+	authRatelimit,
+	shouldFailClosedForMissingUpstash,
+	upstashRedis,
+	workflowClient,
+} from "@/lib/upstash";
 import { getWorkflowAuthToken, storeWorkflowAuthToken } from "@/lib/workflow-auth-token";
 
 type DeleteAccountPayload = {
@@ -269,6 +274,10 @@ export const Route = createFileRoute("/api/workflow/delete-account")({
 				});
 				if (!authConvexUser?._id) {
 					return json({ error: "Unauthorized" }, { status: 401 });
+				}
+
+				if (shouldFailClosedForMissingUpstash()) {
+					return json({ error: "Service temporarily unavailable" }, { status: 503 });
 				}
 
 				if (authRatelimit) {

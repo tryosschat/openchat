@@ -109,7 +109,11 @@ http.route({
           : message.includes("must be between") || message.includes("Invalid")
             ? 400
             : 500;
-      return new Response(JSON.stringify({ error: message }), {
+      if (status === 500) {
+        console.error("[cleanup-batch] Internal error", error);
+      }
+      const safeMessage = status === 500 ? "Cleanup batch failed" : message;
+      return new Response(JSON.stringify({ error: safeMessage }), {
         status,
         headers: { "content-type": "application/json" },
       });

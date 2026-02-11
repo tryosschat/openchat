@@ -1,4 +1,9 @@
-type PipelineResult = Array<{ result: unknown }>;
+type PipelineEntry = {
+	result?: unknown;
+	error?: string;
+};
+
+type PipelineResult = Array<PipelineEntry>;
 
 function getConfig(): { url: string; token: string } | null {
 	const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
@@ -42,7 +47,30 @@ async function executePipeline(commands: Array<Array<string | number>>): Promise
 		throw new Error(`Upstash pipeline failed: ${response.status} ${body}`);
 	}
 
-	return (await response.json()) as PipelineResult;
+	const json = (await response.json()) as PipelineResult;
+
+	if (!Array.isArray(json)) {
+		throw new Error("Upstash pipeline returned invalid response");
+	}
+
+	if (json.length !== commands.length) {
+		throw new Error("Upstash pipeline returned unexpected command count");
+	}
+
+	for (let index = 0; index < json.length; index++) {
+		const entry = json[index];
+		if (!entry || typeof entry !== "object") {
+			throw new Error(`Upstash pipeline returned invalid command result at index ${index}`);
+		}
+		if (typeof entry.error === "string" && entry.error.length > 0) {
+			const commandName = String(commands[index]?.[0] ?? "UNKNOWN");
+			throw new Error(
+				`Upstash pipeline command failed (${commandName} at index ${index}): ${entry.error}`,
+			);
+		}
+	}
+
+	return json;
 }
 
 export async function getDailyUsageFromUpstash(

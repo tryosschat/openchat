@@ -6,6 +6,19 @@ const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL?.trim();
 const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
 const QSTASH_URL = process.env.QSTASH_URL?.trim();
 const QSTASH_TOKEN = process.env.QSTASH_TOKEN?.trim();
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+type RatelimitDecision = {
+	success: boolean;
+	limit: number;
+	remaining: number;
+	reset: number;
+	pending: Promise<unknown>;
+};
+
+type RatelimitLike = {
+	limit: (identifier: string) => Promise<RatelimitDecision>;
+};
 
 export const upstashRedis =
 	UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN
@@ -19,8 +32,20 @@ function createSlidingWindowRatelimit(
 	limit: number,
 	window: `${number} ${"ms" | "s" | "m" | "h" | "d"}`,
 	prefix: string,
-) {
-	if (!upstashRedis) return null;
+): RatelimitLike | null {
+	if (!upstashRedis) {
+		if (!IS_PRODUCTION) return null;
+		const reset = Date.now() + 60_000;
+		return {
+			limit: async () => ({
+				success: false,
+				limit: 0,
+				remaining: 0,
+				reset,
+				pending: Promise.resolve(),
+			}),
+		};
+	}
 	return new Ratelimit({
 		redis: upstashRedis,
 		limiter: Ratelimit.slidingWindow(limit, window),
@@ -41,11 +66,11 @@ export const workflowClient = QSTASH_URL && QSTASH_TOKEN
 	: null;
 
 if (!upstashRedis) {
-	console.warn("[Upstash] Redis not configured — rate limiting is disabled");
-}
-
-if (process.env.NODE_ENV === "production" && !upstashRedis) {
-	console.error("[Upstash] Redis not configured in production");
+	if (IS_PRODUCTION) {
+		console.error("[Upstash] Redis not configured in production; rate-limited endpoints fail closed");
+	} else {
+		console.warn("[Upstash] Redis not configured — rate limiting is disabled");
+	}
 }
 
 export function isUpstashRedisConfigured(): boolean {
@@ -54,4 +79,8 @@ export function isUpstashRedisConfigured(): boolean {
 
 export function isQstashConfigured(): boolean {
 	return workflowClient !== null;
+}
+
+export function shouldFailClosedForMissingUpstash(): boolean {
+	return IS_PRODUCTION && upstashRedis === null;
 }

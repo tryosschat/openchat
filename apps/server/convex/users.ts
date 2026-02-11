@@ -600,6 +600,7 @@ export const updateName = mutation({
 
 const DELETE_BATCH_SIZE_DEFAULT = 100;
 const DELETE_BATCH_SIZE_MAX = 500;
+const MAX_DELETE_BATCH_LOOPS = 1_000;
 
 function normalizeBatchSize(value?: number): number {
 	if (!value || !Number.isFinite(value) || value <= 0) {
@@ -717,6 +718,54 @@ export const deleteUserFiles = internalMutation({
 	},
 });
 
+export const deleteUserChatReadStatuses = internalMutation({
+	args: {
+		userId: v.id("users"),
+		batchSize: v.optional(v.number()),
+	},
+	returns: deletionBatchResult,
+	handler: async (ctx, args) => {
+		const batchSize = normalizeBatchSize(args.batchSize);
+		const statuses = await ctx.db
+			.query("chatReadStatus")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.take(batchSize);
+
+		for (const status of statuses) {
+			await ctx.db.delete(status._id);
+		}
+
+		return {
+			deleted: statuses.length,
+			hasMore: statuses.length === batchSize,
+		};
+	},
+});
+
+export const deleteUserPromptTemplates = internalMutation({
+	args: {
+		userId: v.id("users"),
+		batchSize: v.optional(v.number()),
+	},
+	returns: deletionBatchResult,
+	handler: async (ctx, args) => {
+		const batchSize = normalizeBatchSize(args.batchSize);
+		const templates = await ctx.db
+			.query("promptTemplates")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.take(batchSize);
+
+		for (const template of templates) {
+			await ctx.db.delete(template._id);
+		}
+
+		return {
+			deleted: templates.length,
+			hasMore: templates.length === batchSize,
+		};
+	},
+});
+
 export const deleteUserRecord = internalMutation({
 	args: {
 		userId: v.id("users"),
@@ -753,29 +802,21 @@ export const deleteUserRecord = internalMutation({
 			paginationOpts: { cursor: null, numItems: 1 },
 		});
 
-		for (let batch = 0; batch < 1000; batch++) {
-			const readStatuses = await ctx.db
-				.query("chatReadStatus")
-				.withIndex("by_user", (q) => q.eq("userId", args.userId))
-				.take(100);
-			if (readStatuses.length === 0) {
+		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
+			const result = await ctx.runMutation(internal.users.deleteUserChatReadStatuses, {
+				userId: args.userId,
+			});
+			if (!result.hasMore) {
 				break;
-			}
-			for (const status of readStatuses) {
-				await ctx.db.delete(status._id);
 			}
 		}
 
-		for (let batch = 0; batch < 1000; batch++) {
-			const templates = await ctx.db
-				.query("promptTemplates")
-				.withIndex("by_user", (q) => q.eq("userId", args.userId))
-				.take(100);
-			if (templates.length === 0) {
+		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
+			const result = await ctx.runMutation(internal.users.deleteUserPromptTemplates, {
+				userId: args.userId,
+			});
+			if (!result.hasMore) {
 				break;
-			}
-			for (const template of templates) {
-				await ctx.db.delete(template._id);
 			}
 		}
 
@@ -921,67 +962,51 @@ export const deleteAccount = mutation({
 		});
 
 		// 4. Delete streamJobs
-		const streamJobs = await ctx.db
-			.query("streamJobs")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect();
-		for (const job of streamJobs) {
-			await ctx.db.delete(job._id);
+		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
+			const result = await ctx.runMutation(internal.users.deleteUserStreamJobs, {
+				userId,
+			});
+			if (!result.hasMore) break;
 		}
 
 		// 5. Delete chatReadStatus
-		const readStatuses = await ctx.db
-			.query("chatReadStatus")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect();
-		for (const status of readStatuses) {
-			await ctx.db.delete(status._id);
+		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
+			const result = await ctx.runMutation(internal.users.deleteUserChatReadStatuses, {
+				userId,
+			});
+			if (!result.hasMore) break;
 		}
 
 		// 6. Delete fileUploads AND storage blobs
-		const fileUploads = await ctx.db
-			.query("fileUploads")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect();
-		for (const file of fileUploads) {
-			// Delete the actual file from Convex storage
-			try {
-				await ctx.storage.delete(file.storageId);
-			} catch (e) {
-				// Only log unexpected errors, not "not found" which is expected if file was already deleted
-				const message = e instanceof Error ? e.message : String(e);
-				if (!message.toLowerCase().includes("not found")) {
-					console.error("Unexpected error deleting storage file:", file.storageId, message);
-				}
-			}
-			await ctx.db.delete(file._id);
+		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
+			const result = await ctx.runMutation(internal.users.deleteUserFiles, {
+				userId,
+			});
+			if (!result.hasMore) break;
 		}
 
 		// 7. Delete messages (all messages for all user's chats)
-		const messages = await ctx.db
-			.query("messages")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect();
-		for (const message of messages) {
-			await ctx.db.delete(message._id);
+		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
+			const result = await ctx.runMutation(internal.users.deleteUserMessages, {
+				userId,
+			});
+			if (!result.hasMore) break;
 		}
 
 		// 8. Delete chats
-		const chats = await ctx.db
-			.query("chats")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect();
-		for (const chat of chats) {
-			await ctx.db.delete(chat._id);
+		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
+			const result = await ctx.runMutation(internal.users.deleteUserChats, {
+				userId,
+			});
+			if (!result.hasMore) break;
 		}
 
 		// 9. Delete promptTemplates
-		const templates = await ctx.db
-			.query("promptTemplates")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect();
-		for (const template of templates) {
-			await ctx.db.delete(template._id);
+		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
+			const result = await ctx.runMutation(internal.users.deleteUserPromptTemplates, {
+				userId,
+			});
+			if (!result.hasMore) break;
 		}
 
 		// 10. Delete profile

@@ -38,6 +38,8 @@ const streamOptionsValidator = v.object({
 	enableWebSearch: v.optional(v.boolean()),
 	supportsToolCalls: v.optional(v.boolean()),
 	maxSteps: v.optional(v.number()),
+	dynamicPrompt: v.optional(v.boolean()),
+	jonMode: v.optional(v.boolean()),
 });
 
 type ChainOfThoughtPart = {
@@ -819,7 +821,17 @@ export const executeStream = internalAction({
 				}
 			} else {
 				const redisUsageCents = await getDailyUsageFromUpstash(job.userId, currentDate);
-				if (redisUsageCents !== null && redisUsageCents >= DAILY_AI_LIMIT_CENTS) {
+				const fallbackUsageCents =
+					redisUsageCents ??
+					(await ctx.runQuery(
+						internal.backgroundStream.getPersistedDailyUsageForDateInternal,
+						{
+							userId: job.userId,
+							dateKey: currentDate,
+						},
+					));
+
+				if (fallbackUsageCents >= DAILY_AI_LIMIT_CENTS) {
 					await ctx.runMutation(internal.backgroundStream.failStream, {
 						jobId: args.jobId,
 						error: "Daily usage limit reached. Connect your OpenRouter account to continue.",
@@ -1457,6 +1469,21 @@ export const executeStream = internalAction({
 				partialContent: fullContent,
 			});
 		}
+	},
+});
+
+export const getPersistedDailyUsageForDateInternal = internalQuery({
+	args: {
+		userId: v.id("users"),
+		dateKey: v.string(),
+	},
+	returns: v.number(),
+	handler: async (ctx, args) => {
+		const user = await ctx.db.get(args.userId);
+		if (!user || user.aiUsageDate !== args.dateKey) {
+			return 0;
+		}
+		return user.aiUsageCents ?? 0;
 	},
 });
 

@@ -6,7 +6,11 @@ import type { Id } from "@server/convex/_generated/dataModel";
 import { createConvexServerClient } from "@/lib/convex-server";
 import { decryptSecret } from "@/lib/server-crypto";
 import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth";
-import { authRatelimit, workflowClient } from "@/lib/upstash";
+import {
+	authRatelimit,
+	shouldFailClosedForMissingUpstash,
+	workflowClient,
+} from "@/lib/upstash";
 import { getWorkflowAuthToken, storeWorkflowAuthToken } from "@/lib/workflow-auth-token";
 
 const TITLE_MODEL_ID = "google/gemini-2.5-flash-lite";
@@ -316,6 +320,10 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 				});
 				if (!authConvexUser?._id) {
 					return json({ error: "Unauthorized" }, { status: 401 });
+				}
+
+				if (shouldFailClosedForMissingUpstash()) {
+					return json({ error: "Service temporarily unavailable" }, { status: 503 });
 				}
 
 				if (authRatelimit) {

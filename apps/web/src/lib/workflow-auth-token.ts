@@ -23,7 +23,7 @@ export async function getWorkflowAuthToken(key: string): Promise<string | null> 
 	if (!key.startsWith(`${WORKFLOW_AUTH_TOKEN_PREFIX}:`)) {
 		return null;
 	}
-	const value = await upstashRedis.getdel<string>(key);
+	const value = await upstashRedis.get<string>(key);
 	if (typeof value !== "string" || value.length === 0) {
 		return null;
 	}

@@ -1,7 +1,7 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { createFileRoute } from "@tanstack/react-router";
 import { json } from "@tanstack/react-start";
-import { upstashRedis } from "@/lib/upstash";
+import { shouldFailClosedForMissingUpstash, upstashRedis } from "@/lib/upstash";
 
 const MODELS_CACHE_KEY = "openchat:models";
 const MODELS_CACHE_TTL_SECONDS = 60 * 60 * 4;
@@ -75,10 +75,10 @@ function getClientIp(request: Request): string | null {
 			const first = forwardedFor.split(",")[0]?.trim();
 			if (first) return first;
 		}
-	}
 
-	const realIp = request.headers.get("x-real-ip")?.trim();
-	if (realIp) return realIp;
+		const realIp = request.headers.get("x-real-ip")?.trim();
+		if (realIp) return realIp;
+	}
 
 	return null;
 }
@@ -87,6 +87,10 @@ export const Route = createFileRoute("/api/models")({
 	server: {
 		handlers: {
 			GET: async ({ request }) => {
+				if (shouldFailClosedForMissingUpstash()) {
+					return json({ error: "Service temporarily unavailable" }, { status: 503 });
+				}
+
 				if (modelsIpRatelimit) {
 					const ip = getClientIp(request);
 					if (!ip) {

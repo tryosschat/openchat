@@ -10,6 +10,7 @@ type CleanupPayload = {
 };
 
 const MAX_CLEANUP_BATCHES = 1_000;
+const CLEANUP_BATCH_TIMEOUT_MS = 15_000;
 const CONVEX_SITE_URL =
 	process.env.VITE_CONVEX_SITE_URL || process.env.CONVEX_SITE_URL;
 
@@ -145,6 +146,7 @@ async function runCleanupBatch(args: {
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify(args),
+		signal: AbortSignal.timeout(CLEANUP_BATCH_TIMEOUT_MS),
 	});
 
 	if (!response.ok) {

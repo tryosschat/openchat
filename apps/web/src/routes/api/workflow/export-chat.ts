@@ -5,7 +5,11 @@ import { api } from "@server/convex/_generated/api";
 import type { Id } from "@server/convex/_generated/dataModel";
 import { createConvexServerClient } from "@/lib/convex-server";
 import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth";
-import { exportRatelimit, workflowClient } from "@/lib/upstash";
+import {
+	exportRatelimit,
+	shouldFailClosedForMissingUpstash,
+	workflowClient,
+} from "@/lib/upstash";
 import { getWorkflowAuthToken, storeWorkflowAuthToken } from "@/lib/workflow-auth-token";
 
 type ExportFormat = "markdown" | "json";
@@ -233,6 +237,10 @@ export const Route = createFileRoute("/api/workflow/export-chat")({
 				});
 				if (!authConvexUser?._id) {
 					return json({ error: "Unauthorized" }, { status: 401 });
+				}
+
+				if (shouldFailClosedForMissingUpstash()) {
+					return json({ error: "Service temporarily unavailable" }, { status: 503 });
 				}
 
 				if (exportRatelimit) {
