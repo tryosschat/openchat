@@ -1223,9 +1223,13 @@ export const executeStream = internalAction({
 					webSearchRequested && webSearchMode !== "tool" && webSearchMode !== "unavailable",
 				);
 			}
-				const configuredMaxSteps =
-					typeof job.options?.maxSteps === "number" ? job.options.maxSteps : undefined;
-				const stepLimit = Math.max(1, Math.min(configuredMaxSteps ?? 1, 10));
+			const configuredMaxSteps =
+				typeof job.options?.maxSteps === "number"
+					&& Number.isFinite(job.options.maxSteps)
+					&& job.options.maxSteps > 0
+					? Math.floor(job.options.maxSteps)
+					: undefined;
+			const stepLimit = Math.max(1, Math.min(configuredMaxSteps ?? 1, 10));
 				streamOptions.stopWhen = stepCountIs(stepLimit);
 
 			const result = streamText(streamOptions);
