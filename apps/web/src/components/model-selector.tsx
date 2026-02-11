@@ -6,6 +6,9 @@ import { getModelById, useModelStore, useModels } from "@/stores/model";
 import { useFavoriteModels } from "@/hooks/use-favorite-models";
 import { useUIStore } from "@/stores/ui";
 import { CheckIcon, ChevronDownIcon, SearchIcon } from "@/components/icons";
+import { ModelInfoPanel } from "@/components/model-info-panel";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -117,6 +120,22 @@ function WrenchIcon({ className }: { className?: string }) {
   );
 }
 
+function InfoIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={cn("size-3.5", className)}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6" />
+      <circle cx="12" cy="7" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function StarIcon({ className, filled }: { className?: string; filled?: boolean }) {
   return (
     <svg
@@ -142,8 +161,10 @@ function ModelItem({
   isFavorite,
   onSelect,
   onHover,
+  onInfoClick,
   onToggleFavorite,
   dataIndex,
+  isMobile,
 }: {
   model: Model;
   isSelected: boolean;
@@ -151,8 +172,10 @@ function ModelItem({
   isFavorite: boolean;
   onSelect: () => void;
   onHover: () => void;
+  onInfoClick: (e: React.MouseEvent) => void;
   onToggleFavorite: (e: React.MouseEvent) => void;
   dataIndex: number;
+  isMobile: boolean;
 }) {
   const hasVision = model.modality?.includes("image");
   const hasReasoning = model.reasoning;
@@ -215,19 +238,65 @@ function ModelItem({
           </span>
         )}
 
-        <button
-          type="button"
-          onClick={onToggleFavorite}
-          className={cn(
-            "flex size-8 items-center justify-center rounded-lg transition-all duration-150 md:size-5 md:rounded-md",
-            isFavorite
-              ? "text-amber-400 hover:text-amber-300 hover:scale-110"
-              : "text-muted-foreground/30 opacity-100 active:text-amber-400 md:opacity-0 md:group-hover:opacity-100 hover:text-amber-400 hover:scale-110",
+          {isMobile ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onInfoClick(e);
+              }}
+              className={cn(
+                "flex size-5 items-center justify-center rounded-md transition-all duration-150 md:size-5 md:rounded-md",
+                "text-muted-foreground/30 opacity-100 active:text-foreground md:opacity-0 md:group-hover:opacity-100 hover:text-foreground hover:scale-110",
+              )}
+              title="Model info"
+            >
+              <InfoIcon className="size-3" />
+            </button>
+          ) : (
+            <HoverCard>
+              <HoverCardTrigger delay={300}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onInfoClick(e);
+                  }}
+                  className={cn(
+                    "flex size-5 items-center justify-center rounded-md transition-all duration-150 md:size-5 md:rounded-md",
+                    "text-muted-foreground/30 opacity-100 active:text-foreground md:opacity-0 md:group-hover:opacity-100 hover:text-foreground hover:scale-110",
+                  )}
+                  title="Model info"
+                >
+                  <InfoIcon className="size-3" />
+                </button>
+              </HoverCardTrigger>
+              <HoverCardContent
+                align="start"
+                side="right"
+                sideOffset={8}
+                className="w-auto bg-transparent p-0 shadow-none ring-0"
+              >
+                <div data-model-info-panel>
+                  <ModelInfoPanel model={model} />
+                </div>
+              </HoverCardContent>
+            </HoverCard>
           )}
-          title={isFavorite ? "Remove from favorites" : "Add to favorites"}
-        >
-          <StarIcon filled={isFavorite} className="size-4 md:size-3.5" />
-        </button>
+
+          <button
+            type="button"
+            onClick={onToggleFavorite}
+            className={cn(
+              "flex size-8 items-center justify-center rounded-lg transition-all duration-150 md:size-5 md:rounded-md",
+              isFavorite
+                ? "text-amber-400 hover:text-amber-300 hover:scale-110"
+                : "text-muted-foreground/30 opacity-100 active:text-amber-400 md:opacity-0 md:group-hover:opacity-100 hover:text-amber-400 hover:scale-110",
+            )}
+            title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+          >
+            <StarIcon filled={isFavorite} className="size-4 md:size-3.5" />
+          </button>
 
         {isSelected && (
           <span className="flex size-8 items-center justify-center text-primary md:size-5">
@@ -242,6 +311,7 @@ function ModelItem({
 interface ModelSelectorProps {
   value: string;
   onValueChange: (modelId: string) => void;
+  onInfoOpen?: (model: Model) => void;
   className?: string;
   disabled?: boolean;
 }
@@ -249,6 +319,7 @@ interface ModelSelectorProps {
 export function ModelSelector({
   value,
   onValueChange,
+  onInfoOpen,
   className,
   disabled = false,
 }: ModelSelectorProps) {
@@ -447,11 +518,17 @@ export function ModelSelector({
     if (!open) return;
 
     function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
+      if (target instanceof Element) {
+        const infoPanel = target.closest("[data-model-info-panel]");
+        if (infoPanel) return;
+      }
+
       if (
         contentRef.current &&
-        !contentRef.current.contains(e.target as Node) &&
+        !contentRef.current.contains(target) &&
         triggerRef.current &&
-        !triggerRef.current.contains(e.target as Node)
+        !triggerRef.current.contains(target)
       ) {
         handleClose();
       }
@@ -652,8 +729,10 @@ export function ModelSelector({
                       isFavorite={isFavorite(model.id)}
                       onSelect={() => handleSelect(model.id)}
                       onHover={() => setHighlightedIndex(index)}
+                      onInfoClick={() => onInfoOpen?.(model)}
                       onToggleFavorite={(e) => handleToggleFavorite(e, model.id)}
                       dataIndex={index}
+                      isMobile={isMobile}
                     />
                   ))
                 )}
@@ -824,8 +903,10 @@ export function ModelSelector({
                       isFavorite={isFavorite(model.id)}
                       onSelect={() => handleSelect(model.id)}
                       onHover={() => setHighlightedIndex(index)}
+                      onInfoClick={() => onInfoOpen?.(model)}
                       onToggleFavorite={(e) => handleToggleFavorite(e, model.id)}
                       dataIndex={index}
+                      isMobile={isMobile}
                     />
                   ))
                 )}
@@ -877,15 +958,48 @@ export function ConnectedModelSelector({
   className?: string;
   disabled?: boolean;
 }) {
+  const isMobile = useIsMobile();
   const selectedModelId = useModelStore((state) => state.selectedModelId);
   const setSelectedModel = useModelStore((state) => state.setSelectedModel);
+  const [infoModel, setInfoModel] = useState<Model | null>(null);
+
+  const handleInfoOpen = useCallback(
+    (model: Model) => {
+      if (!isMobile) return;
+      setInfoModel(model);
+    },
+    [isMobile],
+  );
 
   return (
-    <ModelSelector
-      value={selectedModelId}
-      onValueChange={setSelectedModel}
-      className={className}
-      disabled={disabled}
-    />
+    <>
+      <ModelSelector
+        value={selectedModelId}
+        onValueChange={setSelectedModel}
+        onInfoOpen={handleInfoOpen}
+        className={className}
+        disabled={disabled}
+      />
+
+      <Dialog
+        open={infoModel !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setInfoModel(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-[calc(100%-1rem)] gap-3 rounded-3xl p-4 sm:max-w-lg" showCloseButton>
+          <DialogHeader className="pr-10">
+            <DialogTitle>Model info</DialogTitle>
+          </DialogHeader>
+          {infoModel && (
+            <div data-model-info-panel className="overflow-auto">
+              <ModelInfoPanel model={infoModel} className="w-full max-w-none shadow-none" />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
