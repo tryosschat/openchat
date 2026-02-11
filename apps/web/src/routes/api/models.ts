@@ -7,6 +7,7 @@ const MODELS_CACHE_KEY = "openchat:models";
 const MODELS_CACHE_TTL_SECONDS = 60 * 60 * 4;
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_FETCH_TIMEOUT_MS = 10_000;
+const TRUST_PROXY = process.env.TRUST_PROXY === "true";
 
 const modelsIpRatelimit = upstashRedis
 	? new Ratelimit({
@@ -59,23 +60,25 @@ async function fetchModelsFromOpenRouter(): Promise<Response> {
 }
 
 function getClientIp(request: Request): string | null {
-	const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-	if (cfConnectingIp) return cfConnectingIp;
+	if (TRUST_PROXY) {
+		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
+		if (cfConnectingIp) return cfConnectingIp;
+
+		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
+		if (vercelForwardedFor) {
+			const first = vercelForwardedFor.split(",")[0]?.trim();
+			if (first) return first;
+		}
+
+		const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
+		if (forwardedFor) {
+			const first = forwardedFor.split(",")[0]?.trim();
+			if (first) return first;
+		}
+	}
 
 	const realIp = request.headers.get("x-real-ip")?.trim();
 	if (realIp) return realIp;
-
-	const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-	if (vercelForwardedFor) {
-		const first = vercelForwardedFor.split(",")[0]?.trim();
-		if (first) return first;
-	}
-
-	const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
-	if (forwardedFor) {
-		const first = forwardedFor.split(",")[0]?.trim();
-		if (first) return first;
-	}
 
 	return null;
 }
@@ -91,7 +94,19 @@ export const Route = createFileRoute("/api/models")({
 					}
 					const rl = await modelsIpRatelimit.limit(ip);
 					if (!rl.success) {
-						return json({ error: "Rate limit exceeded" }, { status: 429 });
+						const retryAfterSeconds = Math.max(
+							1,
+							Math.ceil((rl.reset - Date.now()) / 1000),
+						);
+						return json(
+							{ error: "Rate limit exceeded" },
+							{
+								status: 429,
+								headers: {
+									"Retry-After": String(retryAfterSeconds),
+								},
+							},
+						);
 					}
 				}
 

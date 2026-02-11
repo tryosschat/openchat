@@ -16,7 +16,7 @@ const CONVEX_SITE_URL =
 function isLocalWorkflowRequest(request: Request): boolean {
 	const hostname = new URL(request.url).hostname;
 	return (
-		hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]"
+		hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
 	);
 }
 

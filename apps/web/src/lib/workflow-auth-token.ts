@@ -1,4 +1,5 @@
 import { upstashRedis } from "@/lib/upstash";
+import { decryptSecret, encryptSecret } from "@/lib/server-crypto";
 
 const WORKFLOW_AUTH_TOKEN_PREFIX = "workflow:auth-token";
 const WORKFLOW_AUTH_TOKEN_TTL_SECONDS = 60 * 60;
@@ -10,7 +11,8 @@ function createWorkflowAuthTokenKey(): string {
 export async function storeWorkflowAuthToken(authToken: string): Promise<string | null> {
 	if (!upstashRedis) return null;
 	const key = createWorkflowAuthTokenKey();
-	await upstashRedis.set(key, authToken, {
+	const encrypted = encryptSecret(authToken);
+	await upstashRedis.set(key, encrypted, {
 		ex: WORKFLOW_AUTH_TOKEN_TTL_SECONDS,
 	});
 	return key;
@@ -18,9 +20,16 @@ export async function storeWorkflowAuthToken(authToken: string): Promise<string 
 
 export async function getWorkflowAuthToken(key: string): Promise<string | null> {
 	if (!upstashRedis) return null;
-	const value = await upstashRedis.get<string>(key);
+	if (!key.startsWith(`${WORKFLOW_AUTH_TOKEN_PREFIX}:`)) {
+		return null;
+	}
+	const value = await upstashRedis.getdel<string>(key);
 	if (typeof value !== "string" || value.length === 0) {
 		return null;
 	}
-	return value;
+	try {
+		return decryptSecret(value);
+	} catch {
+		return null;
+	}
 }

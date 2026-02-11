@@ -33,7 +33,7 @@ export const uploadRatelimit = createSlidingWindowRatelimit(20, "60 s", "ratelim
 export const exportRatelimit = createSlidingWindowRatelimit(10, "60 s", "ratelimit:export:user");
 export const authRatelimit = createSlidingWindowRatelimit(20, "60 s", "ratelimit:auth:user");
 
-export const workflowClient = QSTASH_TOKEN
+export const workflowClient = QSTASH_URL && QSTASH_TOKEN
 	? new WorkflowClient({
 			baseUrl: QSTASH_URL,
 			token: QSTASH_TOKEN,
@@ -42,6 +42,10 @@ export const workflowClient = QSTASH_TOKEN
 
 if (!upstashRedis) {
 	console.warn("[Upstash] Redis not configured — rate limiting is disabled");
+}
+
+if (process.env.NODE_ENV === "production" && !upstashRedis) {
+	console.error("[Upstash] Redis not configured in production");
 }
 
 export function isUpstashRedisConfigured(): boolean {

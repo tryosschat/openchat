@@ -94,3 +94,62 @@ export async function incrementDailyUsageInUpstash(
 		}
 	}
 }
+
+export async function reserveDailyUsageInUpstash(
+	userId: string,
+	dateKey: string,
+	reserveCents: number,
+): Promise<number | null> {
+	if (!getConfig()) return null;
+	if (!Number.isFinite(reserveCents) || reserveCents <= 0) return null;
+	const roundedCents = Math.ceil(reserveCents);
+	if (roundedCents <= 0) return null;
+
+	const key = usageCounterKey(userId, dateKey);
+
+	try {
+		const expiresAt = getMidnightUtcEpochSeconds(dateKey);
+		const result = await executePipeline([
+			["INCRBY", key, roundedCents],
+			["EXPIREAT", key, expiresAt],
+		]);
+		const total = result?.[0]?.result;
+		if (typeof total === "number") return total;
+		if (typeof total === "string") {
+			const parsed = Number.parseInt(total, 10);
+			return Number.isFinite(parsed) ? parsed : null;
+		}
+		return null;
+	} catch (error) {
+		if (shouldLogUpstashUsageErrors()) {
+			console.warn("[Usage] Upstash reserve failed", error);
+		}
+		return null;
+	}
+}
+
+export async function adjustDailyUsageInUpstash(
+	userId: string,
+	dateKey: string,
+	usageCentsDelta: number,
+): Promise<void> {
+	if (!getConfig()) return;
+	if (!Number.isFinite(usageCentsDelta) || usageCentsDelta === 0) return;
+	const roundedDelta =
+		usageCentsDelta > 0 ? Math.ceil(usageCentsDelta) : -Math.ceil(Math.abs(usageCentsDelta));
+	if (roundedDelta === 0) return;
+
+	const key = usageCounterKey(userId, dateKey);
+
+	try {
+		const expiresAt = getMidnightUtcEpochSeconds(dateKey);
+		await executePipeline([
+			["INCRBY", key, roundedDelta],
+			["EXPIREAT", key, expiresAt],
+		]);
+	} catch (error) {
+		if (shouldLogUpstashUsageErrors()) {
+			console.warn("[Usage] Upstash adjust failed", error);
+		}
+	}
+}

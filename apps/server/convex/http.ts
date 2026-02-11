@@ -93,12 +93,27 @@ http.route({
       });
     }
 
-    const result = await ctx.runAction(internal.cleanupAction.runCleanupBatchForWorkflow, {
-      workflowToken: payload.workflowToken.trim(),
-      retentionDays: typeof payload.retentionDays === "number" ? payload.retentionDays : undefined,
-      batchSize: typeof payload.batchSize === "number" ? payload.batchSize : undefined,
-      dryRun: typeof payload.dryRun === "boolean" ? payload.dryRun : undefined,
-    });
+    let result;
+    try {
+      result = await ctx.runAction(internal.cleanupAction.runCleanupBatchForWorkflow, {
+        workflowToken: payload.workflowToken.trim(),
+        retentionDays: typeof payload.retentionDays === "number" ? payload.retentionDays : undefined,
+        batchSize: typeof payload.batchSize === "number" ? payload.batchSize : undefined,
+        dryRun: typeof payload.dryRun === "boolean" ? payload.dryRun : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cleanup batch failed";
+      const status =
+        message === "Unauthorized"
+          ? 401
+          : message.includes("must be between") || message.includes("Invalid")
+            ? 400
+            : 500;
+      return new Response(JSON.stringify({ error: message }), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }
 
     return new Response(JSON.stringify(result), {
       status: 200,

@@ -753,7 +753,7 @@ export const deleteUserRecord = internalMutation({
 			paginationOpts: { cursor: null, numItems: 1 },
 		});
 
-		while (true) {
+		for (let batch = 0; batch < 1000; batch++) {
 			const readStatuses = await ctx.db
 				.query("chatReadStatus")
 				.withIndex("by_user", (q) => q.eq("userId", args.userId))
@@ -766,7 +766,7 @@ export const deleteUserRecord = internalMutation({
 			}
 		}
 
-		while (true) {
+		for (let batch = 0; batch < 1000; batch++) {
 			const templates = await ctx.db
 				.query("promptTemplates")
 				.withIndex("by_user", (q) => q.eq("userId", args.userId))

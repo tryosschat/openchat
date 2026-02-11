@@ -12,8 +12,10 @@ import {
 } from "./lib/billingUtils";
 import type { UsagePayload } from "./lib/billingUtils";
 import {
+	adjustDailyUsageInUpstash,
 	getDailyUsageFromUpstash,
 	incrementDailyUsageInUpstash,
+	reserveDailyUsageInUpstash,
 } from "./lib/upstashUsage";
 import { requireAuthUserId } from "./lib/auth";
 import { decryptSecret } from "./lib/crypto";
@@ -36,8 +38,6 @@ const streamOptionsValidator = v.object({
 	enableWebSearch: v.optional(v.boolean()),
 	supportsToolCalls: v.optional(v.boolean()),
 	maxSteps: v.optional(v.number()),
-	dynamicPrompt: v.optional(v.boolean()),
-	jonMode: v.optional(v.boolean()),
 });
 
 type ChainOfThoughtPart = {
@@ -800,15 +800,32 @@ export const executeStream = internalAction({
 			return;
 		}
 
+		let reservedUsageCents = 0;
+		let reservedDateKey: string | null = null;
+
 		if (job.provider === "osschat") {
 			const currentDate = getCurrentDateKey();
-			const redisUsageCents = await getDailyUsageFromUpstash(job.userId, currentDate);
-			if (redisUsageCents !== null && redisUsageCents >= DAILY_AI_LIMIT_CENTS) {
-				await ctx.runMutation(internal.backgroundStream.failStream, {
-					jobId: args.jobId,
-					error: "Daily usage limit reached. Connect your OpenRouter account to continue.",
-				});
-				return;
+			const reservedTotal = await reserveDailyUsageInUpstash(job.userId, currentDate, 1);
+			if (reservedTotal !== null) {
+				reservedUsageCents = 1;
+				reservedDateKey = currentDate;
+				if (reservedTotal > DAILY_AI_LIMIT_CENTS) {
+					await adjustDailyUsageInUpstash(job.userId, currentDate, -reservedUsageCents);
+					await ctx.runMutation(internal.backgroundStream.failStream, {
+						jobId: args.jobId,
+						error: "Daily usage limit reached. Connect your OpenRouter account to continue.",
+					});
+					return;
+				}
+			} else {
+				const redisUsageCents = await getDailyUsageFromUpstash(job.userId, currentDate);
+				if (redisUsageCents !== null && redisUsageCents >= DAILY_AI_LIMIT_CENTS) {
+					await ctx.runMutation(internal.backgroundStream.failStream, {
+						jobId: args.jobId,
+						error: "Daily usage limit reached. Connect your OpenRouter account to continue.",
+					});
+					return;
+				}
 			}
 		}
 
@@ -1372,27 +1389,31 @@ export const executeStream = internalAction({
 					job.messages,
 					fullContent,
 				);
-			if (usageCents && usageCents > 0) {
-				for (let attempt = 0; attempt < 2; attempt++) {
-					try {
-						await ctx.runMutation(internal.users.incrementAiUsage, {
-							userId: job.userId,
-							usageCents,
-						});
-						break;
-					} catch {
-						if (attempt === 1) break;
+				if (usageCents && usageCents > 0) {
+					for (let attempt = 0; attempt < 2; attempt++) {
+						try {
+							await ctx.runMutation(internal.users.incrementAiUsage, {
+								userId: job.userId,
+								usageCents,
+							});
+							break;
+						} catch {
+							if (attempt === 1) break;
+						}
 					}
-				}
-				try {
-					await incrementDailyUsageInUpstash(
-						job.userId,
-						getCurrentDateKey(),
-						usageCents,
-					);
-				} catch {
-					// Upstash usage tracking is best-effort; don't fail the stream.
-				}
+
+					if (reservedDateKey && reservedUsageCents > 0) {
+						const adjustment = Math.ceil(usageCents) - reservedUsageCents;
+						if (adjustment !== 0) {
+							await adjustDailyUsageInUpstash(job.userId, reservedDateKey, adjustment);
+						}
+					} else {
+						await incrementDailyUsageInUpstash(
+							job.userId,
+							getCurrentDateKey(),
+							usageCents,
+						);
+					}
 				}
 			}
 
@@ -1426,6 +1447,9 @@ export const executeStream = internalAction({
 					: undefined,
 			});
 		} catch (error) {
+			if (reservedDateKey && reservedUsageCents > 0) {
+				await adjustDailyUsageInUpstash(job.userId, reservedDateKey, -reservedUsageCents);
+			}
 			const errorMessage = error instanceof Error ? error.message : "Unknown error";
 			await ctx.runMutation(internal.backgroundStream.failStream, {
 				jobId: args.jobId,
