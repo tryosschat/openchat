@@ -17,6 +17,8 @@ interface UIState {
 
   // Model selector filter display
   filterStyle: FilterStyle;
+  jonMode: boolean;
+  dynamicPrompt: boolean;
 
   // Actions
   toggleSidebar: () => void;
@@ -25,6 +27,8 @@ interface UIState {
   toggleCommandPalette: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setFilterStyle: (style: FilterStyle) => void;
+  setJonMode: (enabled: boolean) => void;
+  setDynamicPrompt: (enabled: boolean) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -35,6 +39,8 @@ export const useUIStore = create<UIState>()(
         sidebarCollapsed: false,
         commandPaletteOpen: false,
         filterStyle: "model" as FilterStyle,
+        jonMode: false,
+        dynamicPrompt: true,
 
         toggleSidebar: () =>
           set((s) => ({ sidebarOpen: !s.sidebarOpen }), false, "ui/toggleSidebar"),
@@ -56,12 +62,20 @@ export const useUIStore = create<UIState>()(
 
         setFilterStyle: (style) =>
           set({ filterStyle: style }, false, "ui/setFilterStyle"),
+
+        setJonMode: (enabled) =>
+          set({ jonMode: enabled }, false, "ui/setJonMode"),
+
+        setDynamicPrompt: (enabled) =>
+          set({ dynamicPrompt: enabled }, false, "ui/setDynamicPrompt"),
       }),
       {
         name: "ui-store",
         partialize: (state) => ({
           sidebarCollapsed: state.sidebarCollapsed,
           filterStyle: state.filterStyle,
+          jonMode: state.jonMode,
+          dynamicPrompt: state.dynamicPrompt,
         }),
       },
     ),

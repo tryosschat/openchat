@@ -44,6 +44,32 @@ const MAX_SEARCH_SNIPPET_CHARS = 1000;
 const MAX_SEARCH_CONTEXT_CHARS = 8000;
 const MAX_COMBINED_SEARCH_CONTEXT_CHARS = 12000;
 const MAX_PREFETCH_SEARCHES = 5;
+const DYNAMIC_PROMPT_BASE = "You are a helpful assistant.";
+const JON_MODE_SYSTEM_PROMPT = `Write like a real person, not a language model.
+Voice:
+- Always use contractions (don't, can't, it's, won't, we're).
+- Vary sentence length dramatically. Short ones. Then longer ones that take their time.
+- Have opinions. "I think" and "honestly" are fine. Don't hedge everything into mush.
+- Match the user's energy. Casual if they're casual, precise if they're technical.
+- Choose unexpected words over obvious defaults. Use colloquialisms and idioms where they fit.
+Never do:
+- No sycophancy ("Great question!", "Absolutely!", "I'd be happy to", "Of course!").
+- No meta-commentary ("It's important to note", "Let me explain", "I hope this helps").
+- No hedging chains ("could potentially perhaps maybe").
+- No rhetorical questions or "not only...but also" constructions.
+- No rule-of-three lists ("fast, reliable, and scalable").
+- No summarizing conclusions or formulaic transitions ("Furthermore", "Moreover", "In summary").
+- No em dashes. Don't open by restating what the user said.
+Word choice:
+- If a simpler everyday word exists, use it. "Use" not "utilize". "Is" not "serves as". "Has" not "boasts".
+- Avoid words that sound like marketing copy, corporate speak, or LinkedIn posts. If it would fit in a press release or TED talk title, pick a different word.
+- Avoid vague abstract nouns where a concrete one works. Avoid inflated verbs where a plain one works.
+Structure:
+- Skip intro-body-conclusion. Start wherever makes sense, sometimes mid-thought.
+- Irregular paragraph lengths. One sentence alone is fine.
+- Use concrete details over generic statements.
+- Stop when done. No wrap-up. No "hope that helps."
+- Leave some thoughts slightly unpolished. Perfect structure feels algorithmic.`;
 
 function usageFromLanguageModelUsage(usage: {
 	inputTokens?: number;
@@ -271,6 +297,8 @@ export const startStream = mutation({
 			enableWebSearch: v.optional(v.boolean()),
 			supportsToolCalls: v.optional(v.boolean()),
 			maxSteps: v.optional(v.number()),
+			jonMode: v.optional(v.boolean()),
+			dynamicPrompt: v.optional(v.boolean()),
 		})),
 	},
 	returns: v.id("streamJobs"),
@@ -292,21 +320,6 @@ export const startStream = mutation({
 				user.aiUsageDate === currentDate ? (user.aiUsageCents ?? 0) : 0;
 			if (usedCents >= DAILY_AI_LIMIT_CENTS) {
 				throw new Error("Daily usage limit reached. Connect your OpenRouter account to continue.");
-			}
-
-			// Prevent concurrent osschat streams per user (TOCTOU mitigation)
-			const runningOsschatJobs = await ctx.db
-				.query("streamJobs")
-				.withIndex("by_user", (q) => q.eq("userId", userId).eq("status", "running"))
-				.collect();
-			const pendingOsschatJobs = await ctx.db
-				.query("streamJobs")
-				.withIndex("by_user", (q) => q.eq("userId", userId).eq("status", "pending"))
-				.collect();
-			const activeOsschatCount = runningOsschatJobs.filter(j => j.provider === "osschat").length
-				+ pendingOsschatJobs.filter(j => j.provider === "osschat").length;
-			if (activeOsschatCount > 0) {
-				throw new Error("Please wait for your current request to finish before sending another.");
 			}
 		}
 
@@ -379,6 +392,8 @@ export const getStreamJob = query({
 				enableWebSearch: v.optional(v.boolean()),
 				supportsToolCalls: v.optional(v.boolean()),
 				maxSteps: v.optional(v.number()),
+				jonMode: v.optional(v.boolean()),
+				dynamicPrompt: v.optional(v.boolean()),
 			})),
 			content: v.string(),
 			reasoning: v.optional(v.string()),
@@ -443,6 +458,8 @@ export const getActiveStreamJob = query({
 				enableWebSearch: v.optional(v.boolean()),
 				supportsToolCalls: v.optional(v.boolean()),
 				maxSteps: v.optional(v.number()),
+				jonMode: v.optional(v.boolean()),
+				dynamicPrompt: v.optional(v.boolean()),
 			})),
 			content: v.string(),
 			reasoning: v.optional(v.string()),
@@ -623,6 +640,14 @@ export const completeStream = internalMutation({
 		webSearchUsed: v.optional(v.boolean()),
 		webSearchCallCount: v.optional(v.number()),
 		toolCallCount: v.optional(v.number()),
+		tokensPerSecond: v.optional(v.number()),
+		timeToFirstTokenMs: v.optional(v.number()),
+		totalDurationMs: v.optional(v.number()),
+		tokenUsage: v.optional(v.object({
+			promptTokens: v.number(),
+			completionTokens: v.number(),
+			totalTokens: v.number(),
+		})),
 	},
 	handler: async (ctx, args) => {
 		const job = await ctx.db.get(args.jobId);
@@ -693,6 +718,10 @@ export const completeStream = internalMutation({
 					reasoningTokenCount: args.reasoningTokenCount,
 					reasoningRequested: args.reasoningRequested,
 				chainOfThoughtParts: args.chainOfThoughtParts,
+				tokensPerSecond: args.tokensPerSecond,
+				timeToFirstTokenMs: args.timeToFirstTokenMs,
+				totalDurationMs: args.totalDurationMs,
+				tokenUsage: args.tokenUsage,
 				messageMetadata: {
 					modelId: job.model,
 					provider: job.provider,
@@ -723,6 +752,10 @@ export const completeStream = internalMutation({
 					reasoningTokenCount: args.reasoningTokenCount,
 					reasoningRequested: args.reasoningRequested,
 				chainOfThoughtParts: args.chainOfThoughtParts,
+				tokensPerSecond: args.tokensPerSecond,
+				timeToFirstTokenMs: args.timeToFirstTokenMs,
+				totalDurationMs: args.totalDurationMs,
+				tokenUsage: args.tokenUsage,
 				messageMetadata: {
 					modelId: job.model,
 					provider: job.provider,
@@ -817,9 +850,10 @@ export const executeStream = internalAction({
 		let reasoningChunkCount = 0;
 		let reasoningStartTime: number | null = null;
 		let reasoningEndTime: number | null = null;
-		let streamCompletedTime: number | null = null;
-		let pendingUpdateCounter = 0;
-		let usageSummary: UsagePayload | null = null;
+	let streamCompletedTime: number | null = null;
+	let firstTextDeltaTime: number | null = null;
+	let pendingUpdateCounter = 0;
+	let usageSummary: UsagePayload | null = null;
 
 		const upsertReasoningPart = (id: string): ChainOfThoughtPart => {
 			const existingIndex = reasoningPartById.get(id);
@@ -879,14 +913,44 @@ export const executeStream = internalAction({
 			];
 		};
 
+		const addJonModeSystemInstruction = (
+			messages: Array<{ role: "user" | "assistant" | "system"; content: string }>
+		) => {
+			return [
+				{ role: "system" as const, content: JON_MODE_SYSTEM_PROMPT },
+				...messages,
+			];
+		};
+
+		const addDynamicPromptSystemInstruction = (
+			messages: Array<{ role: "user" | "assistant" | "system"; content: string }>
+		) => {
+			return [
+				{
+					role: "system" as const,
+					content: `${DYNAMIC_PROMPT_BASE} Your model name is ${job.model}.`,
+				},
+				...messages,
+			];
+		};
+
 		let webSearchMode: "none" | "tool" | "unavailable" = "none";
 
 		const getFinalMessages = (
 			messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
 			webSearchEnabled: boolean,
 		) => {
-			if (!webSearchEnabled) return messages;
-			return addWebSearchSystemInstruction(messages);
+			let result = messages;
+			if (job.options?.jonMode) {
+				result = addJonModeSystemInstruction(result);
+			}
+			if (job.options?.dynamicPrompt ?? true) {
+				result = addDynamicPromptSystemInstruction(result);
+			}
+			if (webSearchEnabled) {
+				result = addWebSearchSystemInstruction(result);
+			}
+			return result;
 		};
 
 			const getThinkingTimeSec = () => {
@@ -1035,6 +1099,7 @@ export const executeStream = internalAction({
 			const supportsToolCalls = job.options?.supportsToolCalls !== false;
 			let webSearchUnavailableReason: string | null = null;
 			let availableSearches = 0;
+			let finalMessagesApplied = false;
 
 			if (webSearchRequested) {
 				const searchLimit = await ctx.runQuery(internal.search.checkSearchLimitInternal, {
@@ -1148,7 +1213,15 @@ export const executeStream = internalAction({
 							false,
 						)),
 					];
+					finalMessagesApplied = true;
 				}
+			}
+
+			if (!finalMessagesApplied) {
+				streamOptions.messages = getFinalMessages(
+					streamOptions.messages as Array<{ role: "user" | "assistant" | "system"; content: string }>,
+					webSearchRequested && webSearchMode !== "tool" && webSearchMode !== "unavailable",
+				);
 			}
 			const configuredMaxSteps =
 				typeof job.options?.maxSteps === "number"
@@ -1163,11 +1236,14 @@ export const executeStream = internalAction({
 
 			for await (const part of result.fullStream) {
 				switch (part.type) {
-					case "text-delta": {
-						fullContent += part.text;
-						pendingUpdateCounter++;
-						break;
+				case "text-delta": {
+					if (firstTextDeltaTime === null) {
+						firstTextDeltaTime = Date.now();
 					}
+					fullContent += part.text;
+					pendingUpdateCounter++;
+					break;
+				}
 					case "reasoning-start": {
 						if (!reasoningRequested) break;
 						const reasoningPart = upsertReasoningPart(part.id);
@@ -1298,9 +1374,19 @@ export const executeStream = internalAction({
 				});
 			}
 
-			clearTimeout(timeoutId);
+		clearTimeout(timeoutId);
 
-			if (job.provider === "osschat") {
+		// Compute analytics for message persistence
+		const totalDurationMs = streamCompletedTime - job.createdAt;
+		const timeToFirstTokenMs = firstTextDeltaTime
+			? firstTextDeltaTime - job.createdAt
+			: undefined;
+		const completionTokens = usageSummary?.completionTokens ?? 0;
+		const tokensPerSecond = totalDurationMs > 0 && completionTokens > 0
+			? Math.round((completionTokens / (totalDurationMs / 1000)) * 100) / 100
+			: undefined;
+
+		if (job.provider === "osschat") {
 				const usageCents = calculateUsageCents(
 					usageSummary,
 					job.messages,
@@ -1325,21 +1411,29 @@ export const executeStream = internalAction({
 				const thinkingTimeSec = getThinkingTimeSec();
 				const toolMetrics = getToolMetrics();
 
-				await ctx.runMutation(internal.backgroundStream.completeStream, {
-				jobId: args.jobId,
-				content: fullContent,
-				reasoning: reasoningRequested ? fullReasoning || undefined : undefined,
-				chainOfThoughtParts: getPersistableChainOfThoughtParts(),
-				thinkingTimeMs,
-				thinkingTimeSec,
-					reasoningCharCount: reasoningRequested ? fullReasoning.length : undefined,
-					reasoningChunkCount: reasoningRequested ? reasoningChunkCount : undefined,
-					reasoningTokenCount: getReasoningTokenCount(),
-					reasoningRequested,
-					webSearchUsed: toolMetrics.webSearchUsed,
-					webSearchCallCount: toolMetrics.webSearchCallCount,
-				toolCallCount: toolMetrics.toolCallCount,
-			});
+			await ctx.runMutation(internal.backgroundStream.completeStream, {
+			jobId: args.jobId,
+			content: fullContent,
+			reasoning: reasoningRequested ? fullReasoning || undefined : undefined,
+			chainOfThoughtParts: getPersistableChainOfThoughtParts(),
+			thinkingTimeMs,
+			thinkingTimeSec,
+				reasoningCharCount: reasoningRequested ? fullReasoning.length : undefined,
+				reasoningChunkCount: reasoningRequested ? reasoningChunkCount : undefined,
+				reasoningTokenCount: getReasoningTokenCount(),
+				reasoningRequested,
+				webSearchUsed: toolMetrics.webSearchUsed,
+				webSearchCallCount: toolMetrics.webSearchCallCount,
+			toolCallCount: toolMetrics.toolCallCount,
+			tokensPerSecond,
+			timeToFirstTokenMs,
+			totalDurationMs,
+			tokenUsage: usageSummary ? {
+				promptTokens: usageSummary.promptTokens ?? 0,
+				completionTokens: usageSummary.completionTokens ?? 0,
+				totalTokens: usageSummary.totalTokens ?? 0,
+			} : undefined,
+		});
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error";
 				await ctx.runMutation(internal.backgroundStream.failStream, {

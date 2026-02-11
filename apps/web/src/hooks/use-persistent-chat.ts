@@ -9,6 +9,7 @@ import { getModelById, getModelCapabilities, useModelStore, useModels } from "@/
 import { useProviderStore } from "@/stores/provider";
 import { useChatTitleStore } from "@/stores/chat-title";
 import { useStreamStore } from "@/stores/stream";
+import { useUIStore } from "@/stores/ui";
 import { analytics } from "@/lib/analytics";
 
 interface ChatFileAttachment {
@@ -26,6 +27,9 @@ export interface UsePersistentChatOptions {
 export interface UsePersistentChatReturn {
 	messages: Array<UIMessage>;
 	sendMessage: (message: { text: string; files?: Array<ChatFileAttachment> }) => Promise<void>;
+	editMessage: (messageId: string, newContent: string) => Promise<void>;
+	retryMessage: (messageId: string, overrideModelId?: string) => Promise<void>;
+	forkMessage: (messageId: string, overrideModelId?: string) => Promise<string | undefined>;
 	status: "ready" | "submitted" | "streaming" | "error";
 	error: Error | undefined;
 	stop: () => void;
@@ -66,6 +70,15 @@ interface ConvexChainOfThoughtPart {
 	input?: unknown;
 	output?: unknown;
 	errorText?: string;
+}
+
+function messageFingerprint(message: UIMessage): string {
+	return JSON.stringify({
+		id: message.id,
+		role: message.role,
+		parts: message.parts,
+		metadata: message.metadata ?? null,
+	});
 }
 
 function isReasoningPart(part: unknown): part is ReasoningPartWithState {
@@ -209,11 +222,21 @@ function convexMessageToUIMessage(msg: {
 	toolCallCount?: number;
 	maxSteps?: number;
 	createdAt: number;
+	tokensPerSecond?: number;
+	timeToFirstTokenMs?: number;
+	totalDurationMs?: number;
+	tokenUsage?: {
+		promptTokens: number;
+		completionTokens: number;
+		totalTokens: number;
+	};
 }): UIMessage {
 	return {
 		id: msg.clientMessageId || msg._id,
 		role: msg.role as "user" | "assistant",
 		metadata: {
+			serverMessageId: msg._id,
+			clientMessageId: msg.clientMessageId,
 			thinkingTimeSec: msg.thinkingTimeSec,
 			reasoningRequested: msg.reasoningRequested,
 			reasoningTokenCount: msg.reasoningTokenCount,
@@ -225,6 +248,10 @@ function convexMessageToUIMessage(msg: {
 			webSearchCallCount: msg.webSearchCallCount,
 			toolCallCount: msg.toolCallCount,
 			maxSteps: msg.maxSteps,
+			tokensPerSecond: msg.tokensPerSecond,
+			timeToFirstTokenMs: msg.timeToFirstTokenMs,
+			totalDurationMs: msg.totalDurationMs,
+			tokenUsage: msg.tokenUsage,
 			resumedFromActiveStream: msg.status === "streaming",
 		},
 		parts: normalizeMessageParts({
@@ -246,6 +273,8 @@ export function usePersistentChat({
 	const { models } = useModels();
 	const activeProvider = useProviderStore((s) => s.activeProvider);
 	const webSearchEnabled = useProviderStore((s) => s.webSearchEnabled);
+	const jonMode = useUIStore((s) => s.jonMode);
+	const dynamicPrompt = useUIStore((s) => s.dynamicPrompt);
 	const chatTitleLength = useChatTitleStore((s) => s.length);
 	const setTitleGenerating = useChatTitleStore((s) => s.setGenerating);
 
@@ -294,6 +323,9 @@ export function usePersistentChat({
 
 	const createChat = useMutation(api.chats.create);
 	const sendMessages = useMutation(api.messages.send);
+	const editAndRegenerate = useMutation(api.messages.editAndRegenerate);
+	const retryMessageMut = useMutation(api.messages.retryMessage);
+	const forkChatMut = useMutation(api.chats.fork);
 	const updateTitle = useMutation(api.chats.updateTitle);
 	const generateTitle = useAction(api.chats.generateTitle);
 	const startBackgroundStream = useMutation(api.backgroundStream.startStream);
@@ -306,26 +338,38 @@ export function usePersistentChat({
 		
 		setMessages((prevMessages) => {
 			const convexMessages = messagesResult.map(convexMessageToUIMessage);
-			
+			let nextMessages = convexMessages;
+
 			if (prevMessages.length === 0) {
-				return convexMessages;
-			}
-			
-			const lastPrev = prevMessages[prevMessages.length - 1];
-			const isLastPrevStreaming = lastPrev.id.startsWith("resume-") || 
-				(lastPrev.role === "assistant" && !messagesResult.find(m => m._id === lastPrev.id));
-			
-			if (isLastPrevStreaming && convexMessages.length > 0) {
-				const lastConvex = convexMessages[convexMessages.length - 1];
-				if (lastConvex.role === "assistant") {
-					return [
+				nextMessages = convexMessages;
+			} else {
+				const lastPrev = prevMessages[prevMessages.length - 1];
+				const isLastPrevStreaming = lastPrev.id.startsWith("resume-") || 
+					(lastPrev.role === "assistant" && !messagesResult.find(m => m._id === lastPrev.id));
+				
+				if (isLastPrevStreaming && convexMessages.length > 0) {
+					const lastConvex = convexMessages[convexMessages.length - 1];
+					if (lastConvex.role === "assistant") {
+						nextMessages = [
 						...convexMessages.slice(0, -1),
 						{ ...lastConvex, id: lastPrev.id }
 					];
+					}
 				}
 			}
-			
-			return convexMessages;
+
+			if (prevMessages.length === nextMessages.length) {
+				let changed = false;
+				for (let i = 0; i < prevMessages.length; i++) {
+					if (messageFingerprint(prevMessages[i]) !== messageFingerprint(nextMessages[i])) {
+						changed = true;
+						break;
+					}
+				}
+				if (!changed) return prevMessages;
+			}
+
+			return nextMessages;
 		});
 	}, [messagesResult, status]);
 
@@ -511,10 +555,10 @@ export function usePersistentChat({
 					setCurrentChatId(targetChatId);
 					analytics.chatCreated();
 					onChatCreatedRef.current?.(targetChatId);
-				} catch (e) {
-					toast.error("Failed to create chat");
-					return;
-				}
+			} catch {
+				toast.error("Failed to create chat");
+				return;
+			}
 			}
 
 			const userMsgId = crypto.randomUUID();
@@ -559,6 +603,8 @@ export function usePersistentChat({
 							enableReasoning: runtimeReasoningEnabled,
 							reasoningEffort: runtimeReasoningEffort,
 							enableWebSearch: webSearchEnabled,
+							jonMode,
+							dynamicPrompt,
 							supportsToolCalls: runtimeSupportsToolCalls,
 						},
 					});
@@ -689,10 +735,429 @@ export function usePersistentChat({
 			[
 				convexUserId, isUserLoading, user?.id, chatId, messages, models,
 				activeProvider, webSearchEnabled, chatTitleLength,
+				jonMode, dynamicPrompt,
 				setTitleGenerating, createChat, sendMessages, updateTitle, generateTitle, startBackgroundStream,
 				cleanupStaleJobs,
 			],
 		);
+
+	const editMessage = useCallback(
+		async (messageId: string, newContent: string) => {
+			if (!convexUserId || !chatIdRef.current) return;
+
+			const trimmedContent = newContent.trim();
+			if (!trimmedContent) return;
+
+			const providerState = useProviderStore.getState();
+			const modelState = useModelStore.getState();
+			const runtimeModelId = modelState.selectedModelId;
+			const runtimeReasoningEnabled = modelState.reasoningEnabled;
+			const runtimeReasoningEffort = runtimeReasoningEnabled ? "medium" : "none";
+			const runtimeModel = getModelById(models, runtimeModelId);
+			const runtimeSupportsToolCalls = getModelCapabilities(
+				runtimeModelId,
+				runtimeModel,
+			).supportsTools;
+
+			if (providerState.activeProvider === "osschat" && providerState.isOverLimit()) {
+				toast.error("Daily limit reached", { description: "Add your OpenRouter API key to continue." });
+				return;
+			}
+
+			const targetChatId = chatIdRef.current as Id<"chats">;
+			const editedMessageDoc = messagesResult?.find(
+				(msg) => msg._id === messageId || msg.clientMessageId === messageId,
+			);
+
+			if (!editedMessageDoc) {
+				toast.error("Could not edit message", {
+					description: "Message is not synced yet. Please try again in a second.",
+				});
+				return;
+			}
+
+			setError(undefined);
+			setStatus("submitted");
+
+			try {
+				await editAndRegenerate({
+					chatId: targetChatId,
+					userId: convexUserId,
+					messageId: editedMessageDoc._id,
+					newContent: trimmedContent,
+				});
+
+				streamingRef.current = null;
+				useStreamStore.getState().completeStream();
+
+				const editedIndex = messages.findIndex((m) => {
+					if (m.id === messageId) return true;
+					const metadata = m.metadata as { serverMessageId?: unknown; clientMessageId?: unknown } | undefined;
+					return (
+						metadata?.serverMessageId === editedMessageDoc._id ||
+						metadata?.clientMessageId === messageId
+					);
+				});
+
+				if (editedIndex < 0) {
+					throw new Error("Edited message not found in local state");
+				}
+
+				const keptMessages = messages
+					.slice(0, editedIndex + 1)
+					.map((m, index) => {
+						if (index !== editedIndex) return m;
+						const metadata = m.metadata as { reasoningRequested?: unknown } | undefined;
+						return {
+							...m,
+							parts: normalizeMessageParts({
+								content: trimmedContent,
+								reasoningRequested: metadata?.reasoningRequested === true,
+								isStreaming: false,
+							}),
+						};
+					});
+
+				setMessages(keptMessages);
+
+				await cleanupStaleJobs({ userId: convexUserId }).catch(() => {});
+
+				const assistantMsgId = crypto.randomUUID();
+				const allMsgs = keptMessages
+					.filter((m) => m.role === "user" || m.role === "assistant")
+					.map((m) => {
+						const textPart = m.parts.find((p): p is { type: "text"; text: string } => p.type === "text");
+						return { role: m.role, content: textPart?.text || "" };
+					});
+
+				await startBackgroundStream({
+					chatId: targetChatId,
+					userId: convexUserId,
+					messageId: assistantMsgId,
+					model: runtimeModelId,
+					provider: activeProvider,
+					messages: allMsgs,
+					options: {
+						enableReasoning: runtimeReasoningEnabled,
+						reasoningEffort: runtimeReasoningEffort,
+						enableWebSearch: webSearchEnabled,
+						jonMode,
+						dynamicPrompt,
+						supportsToolCalls: runtimeSupportsToolCalls,
+					},
+				});
+
+				const initialParts: UIMessage["parts"] = [];
+				if (runtimeReasoningEffort !== "none") {
+					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
+					initialParts.push(reasoningPart as UIMessage["parts"][number]);
+				}
+				initialParts.push({ type: "text", text: "", state: "streaming" });
+
+				setMessages((prev) => [
+					...prev,
+					{
+						id: assistantMsgId,
+						role: "assistant",
+						parts: initialParts,
+						metadata: {
+							reasoningRequested: runtimeReasoningEffort !== "none",
+							modelId: runtimeModelId,
+							provider: activeProvider,
+							reasoningEffort: runtimeReasoningEffort,
+							webSearchEnabled,
+							resumedFromActiveStream: false,
+						},
+					},
+				]);
+
+				setStatus("streaming");
+				streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
+			} catch (err) {
+				const parsedError = err instanceof Error ? err : new Error("Unknown error");
+				setError(parsedError);
+				setStatus("error");
+				toast.error("Failed to edit message", {
+					description: parsedError.message,
+				});
+			}
+		},
+		[
+			convexUserId,
+			messages,
+			messagesResult,
+			models,
+			activeProvider,
+			webSearchEnabled,
+			jonMode,
+			dynamicPrompt,
+			editAndRegenerate,
+			startBackgroundStream,
+			cleanupStaleJobs,
+		],
+	);
+
+	const retryMessage = useCallback(
+		async (messageId: string, overrideModelId?: string) => {
+			if (!convexUserId || !chatIdRef.current) return;
+
+			const providerState = useProviderStore.getState();
+			const modelState = useModelStore.getState();
+			const runtimeModelId = overrideModelId || modelState.selectedModelId;
+			const runtimeReasoningEnabled = modelState.reasoningEnabled;
+			const runtimeReasoningEffort = runtimeReasoningEnabled ? "medium" : "none";
+			const runtimeModel = getModelById(models, runtimeModelId);
+			const runtimeSupportsToolCalls = getModelCapabilities(
+				runtimeModelId,
+				runtimeModel,
+			).supportsTools;
+
+			if (providerState.activeProvider === "osschat" && providerState.isOverLimit()) {
+				toast.error("Daily limit reached", { description: "Add your OpenRouter API key to continue." });
+				return;
+			}
+
+			const targetChatId = chatIdRef.current as Id<"chats">;
+			const retriedMessageDoc = messagesResult?.find(
+				(msg) => msg._id === messageId || msg.clientMessageId === messageId,
+			);
+
+			if (!retriedMessageDoc) {
+				toast.error("Could not retry message", {
+					description: "Message is not synced yet. Please try again in a second.",
+				});
+				return;
+			}
+
+			setError(undefined);
+			setStatus("submitted");
+
+			try {
+				const result = await retryMessageMut({
+					chatId: targetChatId,
+					userId: convexUserId,
+					messageId: retriedMessageDoc._id,
+				});
+
+				streamingRef.current = null;
+				useStreamStore.getState().completeStream();
+
+				const retriedIndex = messages.findIndex((m) => {
+					if (m.id === messageId) return true;
+					const metadata = m.metadata as { serverMessageId?: unknown; clientMessageId?: unknown } | undefined;
+					return (
+						metadata?.serverMessageId === retriedMessageDoc._id ||
+						metadata?.clientMessageId === messageId
+					);
+				});
+
+				if (retriedIndex < 0) {
+					throw new Error("Retried message not found in local state");
+				}
+
+				const keptMessages = messages.slice(0, retriedIndex + 1).map((m, index) => {
+					if (index !== retriedIndex) return m;
+					const metadata = m.metadata as { reasoningRequested?: unknown } | undefined;
+					return {
+						...m,
+						parts: normalizeMessageParts({
+							content: result.userContent,
+							reasoningRequested: metadata?.reasoningRequested === true,
+							isStreaming: false,
+						}),
+					};
+				});
+
+				setMessages(keptMessages);
+
+				await cleanupStaleJobs({ userId: convexUserId }).catch(() => {});
+
+				const assistantMsgId = crypto.randomUUID();
+				const allMsgs = keptMessages
+					.filter((m) => m.role === "user" || m.role === "assistant")
+					.map((m) => {
+						const textPart = m.parts.find((p): p is { type: "text"; text: string } => p.type === "text");
+						return { role: m.role, content: textPart?.text || "" };
+					});
+
+				await startBackgroundStream({
+					chatId: targetChatId,
+					userId: convexUserId,
+					messageId: assistantMsgId,
+					model: runtimeModelId,
+					provider: activeProvider,
+					messages: allMsgs,
+					options: {
+						enableReasoning: runtimeReasoningEnabled,
+						reasoningEffort: runtimeReasoningEffort,
+						enableWebSearch: webSearchEnabled,
+						jonMode,
+						dynamicPrompt,
+						supportsToolCalls: runtimeSupportsToolCalls,
+					},
+				});
+
+				const initialParts: UIMessage["parts"] = [];
+				if (runtimeReasoningEffort !== "none") {
+					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
+					initialParts.push(reasoningPart as UIMessage["parts"][number]);
+				}
+				initialParts.push({ type: "text", text: "", state: "streaming" });
+
+				setMessages((prev) => [
+					...prev,
+					{
+						id: assistantMsgId,
+						role: "assistant",
+						parts: initialParts,
+						metadata: {
+							reasoningRequested: runtimeReasoningEffort !== "none",
+							modelId: runtimeModelId,
+							provider: activeProvider,
+							reasoningEffort: runtimeReasoningEffort,
+							webSearchEnabled,
+							resumedFromActiveStream: false,
+						},
+					},
+				]);
+
+				setStatus("streaming");
+				streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
+			} catch (err) {
+				const parsedError = err instanceof Error ? err : new Error("Unknown error");
+				setError(parsedError);
+				setStatus("error");
+				toast.error("Failed to retry message", {
+					description: parsedError.message,
+				});
+			}
+		},
+		[
+			convexUserId,
+			messages,
+			messagesResult,
+			models,
+			activeProvider,
+			webSearchEnabled,
+			jonMode,
+			dynamicPrompt,
+			retryMessageMut,
+			startBackgroundStream,
+			cleanupStaleJobs,
+		],
+	);
+
+	const forkMessage = useCallback(
+		async (messageId: string, overrideModelId?: string) => {
+			if (!convexUserId || !chatIdRef.current) return undefined;
+
+			const providerState = useProviderStore.getState();
+			const modelState = useModelStore.getState();
+			const runtimeModelId = overrideModelId || modelState.selectedModelId;
+			const runtimeReasoningEnabled = modelState.reasoningEnabled;
+			const runtimeReasoningEffort = runtimeReasoningEnabled ? "medium" : "none";
+			const runtimeModel = getModelById(models, runtimeModelId);
+			const runtimeSupportsToolCalls = getModelCapabilities(
+				runtimeModelId,
+				runtimeModel,
+			).supportsTools;
+
+			if (providerState.activeProvider === "osschat" && providerState.isOverLimit()) {
+				toast.error("Daily limit reached", {
+					description: "Add your OpenRouter API key to continue.",
+				});
+				return undefined;
+			}
+
+			const forkIdx = messages.findIndex((message) => {
+				if (message.id === messageId) return true;
+				const metadata = message.metadata as
+					| { serverMessageId?: unknown; clientMessageId?: unknown }
+					| undefined;
+				return (
+					metadata?.serverMessageId === messageId ||
+					metadata?.clientMessageId === messageId
+				);
+			});
+
+			if (forkIdx < 0) {
+				toast.error("Could not branch off", {
+					description: "Message is not synced yet. Please try again in a second.",
+				});
+				return undefined;
+			}
+
+			const msgsUpToFork = messages
+				.slice(0, forkIdx + 1)
+				.filter((message) => message.role === "user" || message.role === "assistant")
+				.map((message) => {
+					const textPart = message.parts.find(
+						(part): part is { type: "text"; text: string } => part.type === "text",
+					);
+					return { role: message.role, content: textPart?.text || "" };
+				});
+
+		try {
+			const forkMessageDoc = messagesResult?.find(
+				(msg) => msg._id === messageId || msg.clientMessageId === messageId,
+			);
+
+			if (!forkMessageDoc) {
+				toast.error("Could not branch off", {
+					description: "Message is not synced yet. Please try again in a second.",
+				});
+				return undefined;
+			}
+
+			const { newChatId } = await forkChatMut({
+				chatId: chatIdRef.current as Id<"chats">,
+				userId: convexUserId,
+				messageId: forkMessageDoc._id,
+			});
+
+				await cleanupStaleJobs({ userId: convexUserId }).catch(() => {});
+
+				const assistantMsgId = crypto.randomUUID();
+				await startBackgroundStream({
+					chatId: newChatId,
+					userId: convexUserId,
+					messageId: assistantMsgId,
+					model: runtimeModelId,
+					provider: activeProvider,
+					messages: msgsUpToFork,
+					options: {
+						enableReasoning: runtimeReasoningEnabled,
+						reasoningEffort: runtimeReasoningEffort,
+						enableWebSearch: webSearchEnabled,
+						jonMode,
+						dynamicPrompt,
+						supportsToolCalls: runtimeSupportsToolCalls,
+					},
+				});
+
+				return newChatId;
+			} catch (err) {
+				const parsedError = err instanceof Error ? err : new Error("Unknown error");
+				toast.error("Failed to branch off", {
+					description: parsedError.message,
+				});
+				return undefined;
+			}
+		},
+		[
+			convexUserId,
+			messages,
+			models,
+			activeProvider,
+			webSearchEnabled,
+			jonMode,
+			dynamicPrompt,
+			forkChatMut,
+			cleanupStaleJobs,
+			startBackgroundStream,
+			messagesResult,
+		],
+	);
 
 	const stop = useCallback(() => {
 		setStatus("ready");
@@ -703,6 +1168,9 @@ export function usePersistentChat({
 	return {
 		messages,
 		sendMessage: handleSendMessage,
+		editMessage,
+		retryMessage,
+		forkMessage,
 		status,
 		error,
 		stop,

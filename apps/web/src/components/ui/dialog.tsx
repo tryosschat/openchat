@@ -44,7 +44,7 @@ function DialogContent({
 }) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogPrimitive.Close render={<DialogOverlay />} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(

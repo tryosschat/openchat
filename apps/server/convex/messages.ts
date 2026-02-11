@@ -99,6 +99,16 @@ const messageDoc = v.object({
 	messageType: messageTypeValidator,
 	createdAt: v.number(),
 	deletedAt: v.optional(v.number()),
+	tokenUsage: v.optional(
+		v.object({
+			promptTokens: v.number(),
+			completionTokens: v.number(),
+			totalTokens: v.number(),
+		})
+	),
+	tokensPerSecond: v.optional(v.number()),
+	timeToFirstTokenMs: v.optional(v.number()),
+	totalDurationMs: v.optional(v.number()),
 });
 
 export const list = query({
@@ -211,6 +221,10 @@ export const list = query({
 			messageType: msg.messageType,
 			createdAt: msg.createdAt,
 			deletedAt: msg.deletedAt,
+			tokenUsage: msg.tokenUsage,
+			tokensPerSecond: msg.tokensPerSecond,
+			timeToFirstTokenMs: msg.timeToFirstTokenMs,
+			totalDurationMs: msg.totalDurationMs,
 		}));
 	},
 });
@@ -402,6 +416,169 @@ export const send = mutation({
 			userMessageId,
 			assistantMessageId: assistantMessageId ?? undefined,
 		};
+	},
+});
+
+export const editAndRegenerate = mutation({
+	args: {
+		chatId: v.id("chats"),
+		userId: v.id("users"),
+		messageId: v.id("messages"),
+		newContent: v.string(),
+	},
+	returns: v.object({
+		messageId: v.id("messages"),
+		softDeletedCount: v.number(),
+	}),
+	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const { ok, retryAfter } = await rateLimiter.limit(ctx, "messageSend", {
+			key: userId,
+		});
+
+		if (!ok) {
+			throwRateLimitError("messages edited", retryAfter);
+		}
+
+		const chat = await assertOwnsChat(ctx, args.chatId, userId);
+		if (!chat) {
+			throw new Error("Chat not found");
+		}
+
+		const newContent = args.newContent.trim();
+		if (!newContent) {
+			throw new Error("Message content cannot be empty");
+		}
+
+		const message = await ctx.db.get(args.messageId);
+		if (!message || message.chatId !== args.chatId || message.role !== "user" || message.deletedAt) {
+			throw new Error("Message not found or not a user message");
+		}
+
+		const now = Date.now();
+
+		const activeStreams = await ctx.db
+			.query("streamJobs")
+			.withIndex("by_chat", (q) => q.eq("chatId", args.chatId).eq("status", "running"))
+			.collect();
+		const pendingStreams = await ctx.db
+			.query("streamJobs")
+			.withIndex("by_chat", (q) => q.eq("chatId", args.chatId).eq("status", "pending"))
+			.collect();
+
+		for (const stream of [...activeStreams, ...pendingStreams]) {
+			await ctx.db.patch(stream._id, {
+				status: "completed",
+				completedAt: now,
+			});
+		}
+
+		await ctx.db.patch(args.messageId, {
+			content: newContent,
+		});
+
+		const messagesToDelete = await ctx.db
+			.query("messages")
+			.withIndex("by_chat_not_deleted", (q) =>
+				q.eq("chatId", args.chatId).eq("deletedAt", undefined)
+			)
+			.order("asc")
+			.filter((q) => q.gt(q.field("createdAt"), message.createdAt))
+			.collect();
+
+		for (const msg of messagesToDelete) {
+			await ctx.db.patch(msg._id, { deletedAt: now });
+		}
+
+		const softDeletedCount = messagesToDelete.length;
+		const currentCount = chat.messageCount ?? 0;
+		await ctx.db.patch(args.chatId, {
+			messageCount: Math.max(0, currentCount - softDeletedCount),
+			activeStreamId: undefined,
+			status: "idle",
+			updatedAt: now,
+		});
+
+		return { messageId: args.messageId, softDeletedCount };
+	},
+});
+
+export const retryMessage = mutation({
+	args: {
+		chatId: v.id("chats"),
+		userId: v.id("users"),
+		messageId: v.id("messages"),
+	},
+	returns: v.object({
+		userContent: v.string(),
+		softDeletedCount: v.number(),
+	}),
+	handler: async (ctx, args) => {
+		const userId = await requireAuthUserId(ctx, args.userId);
+		const chat = await assertOwnsChat(ctx, args.chatId, userId);
+		if (!chat) {
+			throw new Error("Chat not found");
+		}
+
+		const { ok, retryAfter } = await rateLimiter.limit(ctx, "messageSend", {
+			key: userId,
+		});
+		if (!ok) {
+			throwRateLimitError("messages retried", retryAfter);
+		}
+
+		const message = await ctx.db.get(args.messageId);
+		if (
+			!message ||
+			message.chatId !== args.chatId ||
+			message.role !== "user" ||
+			message.deletedAt
+		) {
+			throw new Error("Message not found");
+		}
+
+		const now = Date.now();
+
+		const activeStreams = await ctx.db
+			.query("streamJobs")
+			.withIndex("by_chat", (q) => q.eq("chatId", args.chatId).eq("status", "running"))
+			.collect();
+		const pendingStreams = await ctx.db
+			.query("streamJobs")
+			.withIndex("by_chat", (q) => q.eq("chatId", args.chatId).eq("status", "pending"))
+			.collect();
+		for (const stream of [...activeStreams, ...pendingStreams]) {
+			await ctx.db.patch(stream._id, {
+				status: "completed",
+				completedAt: now,
+			});
+		}
+
+		const allMessages = await ctx.db
+			.query("messages")
+			.withIndex("by_chat_not_deleted", (q) =>
+				q.eq("chatId", args.chatId).eq("deletedAt", undefined)
+			)
+			.order("asc")
+			.collect();
+
+		let softDeletedCount = 0;
+		for (const msg of allMessages) {
+			if (msg.createdAt > message.createdAt) {
+				await ctx.db.patch(msg._id, { deletedAt: now });
+				softDeletedCount += 1;
+			}
+		}
+
+		const currentCount = chat.messageCount ?? 0;
+		await ctx.db.patch(args.chatId, {
+			messageCount: Math.max(0, currentCount - softDeletedCount),
+			activeStreamId: undefined,
+			status: "idle",
+			updatedAt: now,
+		});
+
+		return { userContent: message.content, softDeletedCount };
 	},
 });
 

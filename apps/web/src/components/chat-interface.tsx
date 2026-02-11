@@ -19,6 +19,7 @@ import { ArrowUpIcon, BrainIcon, GlobeIcon,
   PaperclipIcon,
   SearchIcon,
   SquareIcon,
+  XIcon,
   } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { toast } from "sonner";
@@ -42,6 +43,8 @@ import {
 } from "./ai-elements/prompt-input";
 import { ConnectedModelSelector } from "./model-selector";
 import { StartScreen } from "./start-screen";
+import { UserMessageActions, AssistantMessageActions } from "@/components/message-actions";
+
 import type { UIDataTypes, UIMessagePart, UITools } from "ai";
 import type {PromptInputMessage} from "./ai-elements/prompt-input";
 import { cn } from "@/lib/utils";
@@ -61,6 +64,10 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { usePersistentChat } from "@/hooks/use-persistent-chat";
+import {
+	SHORTCUT_EVENT_FOCUS_PROMPT_TOGGLE,
+	SHORTCUT_EVENT_STOP_GENERATION,
+} from "@/lib/shortcuts";
 
 function useIsMac() {
   const [isMac, setIsMac] = useState(true);
@@ -868,7 +875,7 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Use persistent chat hook with Convex integration
-  const { messages, sendMessage, status, error, stop, isNewChat } = usePersistentChat({
+	const { messages, sendMessage, editMessage, retryMessage, forkMessage, status, error, stop, isNewChat } = usePersistentChat({
     chatId,
     onChatCreated: (newChatId) => {
       // Navigate to the new chat page
@@ -897,6 +904,15 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
     [sendMessage],
   );
 
+	const handleForkMessage = useCallback(
+		async (messageId: string, modelId?: string) => {
+			const newChatId = await forkMessage(messageId, modelId);
+			if (!newChatId) return;
+			navigate({ to: "/c/$chatId", params: { chatId: newChatId } });
+		},
+		[forkMessage, navigate],
+	);
+
   // Note: handlePromptSelect is handled in ChatInterfaceContent
   // because it needs access to the PromptInputProvider context
 
@@ -912,6 +928,9 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         error={error ?? null}
         stop={stop}
         handleSubmit={handleSubmit}
+        onEditMessage={editMessage}
+        onRetryMessage={retryMessage}
+			onForkMessage={handleForkMessage}
         textareaRef={textareaRef}
       />
     </PromptInputProvider>
@@ -919,6 +938,7 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
 }
 
 interface ChatMessageListProps {
+  chatId: string | null;
   messages: Array<{
     id: string;
     role: string;
@@ -928,15 +948,32 @@ interface ChatMessageListProps {
   isLoading: boolean;
   isNewChat: boolean;
   onPromptSelect: (prompt: string) => void;
+  onRetryMessage: (messageId: string, modelId?: string) => Promise<void>;
+	onForkMessage: (messageId: string, modelId?: string) => Promise<void>;
+  editingMessageId: string | null;
+  onStartEdit: (messageId: string, content: string) => void;
 }
 
 const ChatMessageList = memo(function ChatMessageList({
+  chatId,
   messages,
   isLoading,
   isNewChat,
   onPromptSelect,
+  onRetryMessage,
+	onForkMessage,
+  editingMessageId,
+  onStartEdit,
 }: ChatMessageListProps) {
   const [openByMessageId, setOpenByMessageId] = useState<Record<string, boolean>>({});
+
+  const prevChatIdRef = useRef(chatId);
+  useEffect(() => {
+    if (prevChatIdRef.current !== chatId) {
+      setOpenByMessageId({});
+      prevChatIdRef.current = chatId;
+    }
+  }, [chatId]);
   const prevThinkingStreamingByMessageIdRef = useRef<Record<string, boolean>>({});
 
   const processedMessages = useMemo(() => {
@@ -952,6 +989,15 @@ const ChatMessageList = memo(function ChatMessageList({
           retryable?: boolean;
         };
         messageType?: "text" | "error" | "system";
+        modelId?: string;
+        tokensPerSecond?: number;
+        tokenUsage?: {
+          promptTokens: number;
+          completionTokens: number;
+          totalTokens: number;
+        };
+        timeToFirstTokenMs?: number;
+        totalDurationMs?: number;
       };
 
       const allParts = message.parts || [];
@@ -982,6 +1028,15 @@ const ChatMessageList = memo(function ChatMessageList({
         reasoningRequested?: unknown;
         reasoningTokenCount?: unknown;
         resumedFromActiveStream?: unknown;
+        modelId?: string;
+        tokensPerSecond?: number;
+        timeToFirstTokenMs?: number;
+        totalDurationMs?: number;
+        tokenUsage?: {
+          promptTokens: number;
+          completionTokens: number;
+          totalTokens: number;
+        };
       } | undefined;
       const thinkingTimeSec =
         typeof metadata?.thinkingTimeSec === "number"
@@ -1077,12 +1132,12 @@ const ChatMessageList = memo(function ChatMessageList({
           <StartScreen onPromptSelect={onPromptSelect} />
         ) : messages.length === 0 ? null : (
           <>
-            {processedMessages.map((item) => {
+			{processedMessages.map((item, itemIndex) => {
               if (item.shouldSkip) return null;
 
               if (item.msg.messageType === "error" && item.msg.error) {
                 return (
-                  <div key={item.message.id}>
+                  <div key={item.message.id} className="group">
                     <Message from={item.message.role as "user" | "assistant"}>
                       <MessageContent>
                         <InlineErrorMessage error={item.msg.error} />
@@ -1093,41 +1148,95 @@ const ChatMessageList = memo(function ChatMessageList({
               }
 
               return (
-                <div key={item.message.id}>
+                <div key={item.message.id} className={cn("group", editingMessageId === item.message.id && "ring-2 ring-primary/30 rounded-2xl")}>
                   <Message from={item.message.role as "user" | "assistant"}>
-                    <MessageContent>
-                      {item.thinkingSteps.length > 0 && (
-                        <ChainOfThought
-                          steps={item.thinkingSteps}
-                          isStreaming={item.isAnyStepStreaming}
-                          hasTextContent={item.hasTextContent || item.textParts.length > 0}
-                          thinkingTimeSec={item.thinkingTimeSec}
-                          reasoningRequested={item.reasoningRequested}
-                          reasoningTokenCount={item.reasoningTokenCount}
-                          open={openByMessageId[item.message.id] ?? item.isAnyStepStreaming}
-                          onOpenChange={(open) => setPanelOpen(item.message.id, open)}
-                        />
-                      )}
+                      <MessageContent>
+                        {item.thinkingSteps.length > 0 && (
+                          <ChainOfThought
+                            steps={item.thinkingSteps}
+                            isStreaming={item.isAnyStepStreaming}
+                            hasTextContent={item.hasTextContent || item.textParts.length > 0}
+                            thinkingTimeSec={item.thinkingTimeSec}
+                            reasoningRequested={item.reasoningRequested}
+                            reasoningTokenCount={item.reasoningTokenCount}
+                            open={openByMessageId[item.message.id] ?? item.isAnyStepStreaming}
+                            onOpenChange={(open) => setPanelOpen(item.message.id, open)}
+                          />
+                        )}
 
-                      {item.textParts.map((part, partIndex) => (
-                        <MessageResponse
-                          key={`text-${partIndex}`}
-                          isStreaming={item.isCurrentlyStreaming && partIndex === item.textParts.length - 1}
-                          skipInitialAnimation={item.resumedFromActiveStream}
-                        >
-                          {part.text || ""}
-                        </MessageResponse>
-                      ))}
+                        {item.textParts.map((part, partIndex) => (
+                          <MessageResponse
+                            key={`text-${partIndex}`}
+                            isStreaming={item.isCurrentlyStreaming && partIndex === item.textParts.length - 1}
+                            skipInitialAnimation={item.resumedFromActiveStream}
+                          >
+                            {part.text || ""}
+                          </MessageResponse>
+                        ))}
 
-                      {item.fileParts.map((part, partIndex) => (
-                        <MessageFile
-                          key={`file-${partIndex}`}
-                          filename={part.filename}
-                          url={part.url}
-                          mediaType={part.mediaType}
-                        />
-                      ))}
-                    </MessageContent>
+                        {item.fileParts.map((part, partIndex) => (
+                          <MessageFile
+                            key={`file-${partIndex}`}
+                            filename={part.filename}
+                            url={part.url}
+                            mediaType={part.mediaType}
+                          />
+                        ))}
+                      </MessageContent>
+					{item.message.role === "user" ? (
+						<UserMessageActions
+							messageId={item.message.id}
+							content={item.textParts.map((p) => p.text).join("")}
+							isStreaming={item.isCurrentlyStreaming || editingMessageId === item.message.id}
+							onEdit={() => onStartEdit(item.message.id, item.textParts.map((p) => p.text).join(""))}
+							onRetry={(modelId) => {
+								void onRetryMessage(item.message.id, modelId);
+							}}
+							onFork={(modelId) => {
+								void onForkMessage(item.message.id, modelId);
+							}}
+						/>
+					) : (
+						<AssistantMessageActions
+							messageId={item.message.id}
+							content={item.textParts.map((p) => p.text).join("")}
+							isStreaming={item.isCurrentlyStreaming}
+							analytics={{
+								modelId: (item.message.metadata as Record<string, unknown> | undefined)?.modelId as string | undefined,
+								tokensPerSecond: (item.message.metadata as Record<string, unknown> | undefined)?.tokensPerSecond as number | undefined,
+								tokenUsage: (item.message.metadata as Record<string, unknown> | undefined)?.tokenUsage as { promptTokens: number; completionTokens: number; totalTokens: number } | undefined,
+								timeToFirstTokenMs: (item.message.metadata as Record<string, unknown> | undefined)?.timeToFirstTokenMs as number | undefined,
+							}}
+							onRetry={(modelId) => {
+								const precedingUser = processedMessages.slice(0, itemIndex)
+									.reverse()
+									.find((candidate) => candidate.message.role === "user");
+
+								if (!precedingUser) {
+									toast.error("Could not retry response", {
+										description: "No preceding user message found for this assistant response.",
+									});
+									return;
+								}
+
+								void onRetryMessage(precedingUser.message.id, modelId);
+							}}
+							onFork={(modelId) => {
+								const precedingUser = processedMessages.slice(0, itemIndex)
+									.reverse()
+									.find((candidate) => candidate.message.role === "user");
+
+								if (!precedingUser) {
+									toast.error("Could not branch off", {
+										description: "No preceding user message found for this assistant response.",
+									});
+									return;
+								}
+
+								void onForkMessage(precedingUser.message.id, modelId);
+							}}
+						/>
+                    )}
                   </Message>
                 </div>
               );
@@ -1157,6 +1266,9 @@ interface ChatInterfaceContentProps {
   error: Error | null;
   stop: () => void;
   handleSubmit: (message: PromptInputMessage) => Promise<void>;
+  onEditMessage: (messageId: string, newContent: string) => Promise<void>;
+  onRetryMessage: (messageId: string, modelId?: string) => Promise<void>;
+	onForkMessage: (messageId: string, modelId?: string) => Promise<void>;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
@@ -1168,9 +1280,15 @@ function ChatInterfaceContent({
   error: _error,
   stop,
   handleSubmit,
+  onEditMessage,
+  onRetryMessage,
+	onForkMessage,
   textareaRef,
 }: ChatInterfaceContentProps) {
   const controller = usePromptInputController();
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const savedDraftRef = useRef<string>("");
 
   // Persist prompt drafts to localStorage (per-chat, debounced, non-annoying)
   const { clearDraft } = usePromptDraft({
@@ -1178,33 +1296,45 @@ function ChatInterfaceContent({
     textInputController: controller.textInput,
   });
 
-  // Cmd+L / Ctrl+L keybind to toggle focus on prompt input
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Check for Cmd+L (Mac) or Ctrl+L (Windows/Linux)
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
-        e.preventDefault();
+    setEditingMessageId(null);
+    setIsSavingEdit(false);
+  }, [chatId]);
 
-        const textarea = textareaRef.current;
-        if (!textarea) return;
+  // Global shortcuts dispatch custom events consumed here.
+  useEffect(() => {
+		const onFocusPromptToggle = () => {
+			const textarea = textareaRef.current;
+			if (!textarea) return;
 
-        // Toggle: if textarea is focused (or contains focus), blur; otherwise focus
-        const isTextareaFocused =
-          document.activeElement === textarea || textarea.contains(document.activeElement as Node);
+			const isTextareaFocused =
+				document.activeElement === textarea || textarea.contains(document.activeElement as Node);
 
-        if (isTextareaFocused) {
-          textarea.blur();
-          // Also blur the document to ensure we're not stuck in the input
-          (document.activeElement as HTMLElement).blur();
-        } else {
-          textarea.focus();
-        }
-      }
-    };
+			if (isTextareaFocused) {
+				textarea.blur();
+				const activeElement = document.activeElement;
+				if (activeElement instanceof HTMLElement) {
+					activeElement.blur();
+				}
+				return;
+			}
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [textareaRef]);
+			textarea.focus();
+		};
+
+		const onStopGeneration = () => {
+			if (!isLoading) return;
+			stop();
+		};
+
+		window.addEventListener(SHORTCUT_EVENT_FOCUS_PROMPT_TOGGLE, onFocusPromptToggle);
+		window.addEventListener(SHORTCUT_EVENT_STOP_GENERATION, onStopGeneration);
+
+		return () => {
+			window.removeEventListener(SHORTCUT_EVENT_FOCUS_PROMPT_TOGGLE, onFocusPromptToggle);
+			window.removeEventListener(SHORTCUT_EVENT_STOP_GENERATION, onStopGeneration);
+		};
+	}, [isLoading, stop, textareaRef]);
 
   // Handler for StartScreen prompt selection - populates input and focuses
   const setInput = controller.textInput.setInput;
@@ -1219,31 +1349,93 @@ function ChatInterfaceContent({
     [setInput, textareaRef],
   );
 
-  // Wrap handleSubmit to clear the draft after successful submission
+  const startEdit = useCallback(
+    (messageId: string, content: string) => {
+      savedDraftRef.current = controller.textInput.value;
+      setEditingMessageId(messageId);
+      setInput(content);
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 0);
+    },
+    [controller.textInput.value, setInput, textareaRef],
+  );
+
+  const cancelEdit = useCallback(() => {
+    setEditingMessageId(null);
+    setIsSavingEdit(false);
+    setInput(savedDraftRef.current);
+    savedDraftRef.current = "";
+  }, [setInput]);
+
+  // Escape closes message edit mode.
+  useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape" && editingMessageId) {
+				e.preventDefault();
+				cancelEdit();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, [cancelEdit, editingMessageId]);
+
   const handleSubmitWithDraftClear = useCallback(
     async (message: PromptInputMessage) => {
-      // Use .then() to only clear draft on success, preserving draft on errors for retry
+      if (editingMessageId) {
+        if (!message.text.trim()) return;
+        try {
+          setIsSavingEdit(true);
+          await onEditMessage(editingMessageId, message.text);
+          setEditingMessageId(null);
+          setIsSavingEdit(false);
+          savedDraftRef.current = "";
+          clearDraft();
+        } catch {
+          setIsSavingEdit(false);
+        }
+        return;
+      }
       await handleSubmit(message).then(() => {
         clearDraft();
       });
     },
-    [handleSubmit, clearDraft],
+    [handleSubmit, clearDraft, editingMessageId, onEditMessage],
   );
 
   return (
     <div className="flex h-full flex-col">
       <ChatMessageList
+        chatId={chatId}
         messages={messages}
         isLoading={isLoading}
         isNewChat={isNewChat}
         onPromptSelect={onPromptSelect}
+        onRetryMessage={onRetryMessage}
+			onForkMessage={onForkMessage}
+        editingMessageId={editingMessageId}
+        onStartEdit={startEdit}
       />
 
       <div className="px-2 md:px-4 pt-2 md:pt-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:pb-4">
         <div className="mx-auto max-w-3xl">
+          {editingMessageId && (
+            <div className="mb-2 flex items-center justify-between rounded-lg bg-primary/10 border border-primary/20 px-3 py-2">
+              <span className="text-sm text-primary font-medium">Editing message</span>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <XIcon className="size-3" />
+                Cancel
+              </button>
+            </div>
+          )}
           <PremiumPromptInputInner
             onSubmit={handleSubmitWithDraftClear}
-            isLoading={isLoading}
+            isLoading={isLoading || isSavingEdit}
             onStop={stop}
             textareaRef={textareaRef}
           />

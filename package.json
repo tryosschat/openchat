@@ -11,7 +11,7 @@
   "overrides": {
     "@peculiar/asn1-schema": "2.6.0"
   },
-  "packageManager": "bun@1.3.0",
+  "packageManager": "bun@1.3.5",
   "private": true,
   "scripts": {
     "check": "turbo lint",

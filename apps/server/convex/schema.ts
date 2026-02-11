@@ -58,6 +58,8 @@ export default defineSchema({
 		messageCount: v.optional(v.number()),
 		status: v.optional(v.union(v.literal("idle"), v.literal("streaming"))),
 		activeStreamId: v.optional(v.string()),
+		forkedFromChatId: v.optional(v.id("chats")),
+		forkedFromMessageId: v.optional(v.string()),
 	})
 		.index("by_user", ["userId", "updatedAt"])
 		.index("by_user_created", ["userId", "createdAt"])
@@ -146,6 +148,9 @@ export default defineSchema({
 		status: v.optional(v.string()),
 		userId: v.optional(v.id("users")),
 		deletedAt: v.optional(v.number()),
+		tokensPerSecond: v.optional(v.number()),
+		timeToFirstTokenMs: v.optional(v.number()),
+		totalDurationMs: v.optional(v.number()),
 		streamId: v.optional(v.string()),
 		// Legacy field — present on some existing documents but no longer written.
 		// Kept so schema validation passes for old rows.
@@ -257,6 +262,8 @@ export default defineSchema({
 			enableWebSearch: v.optional(v.boolean()),
 			supportsToolCalls: v.optional(v.boolean()),
 			maxSteps: v.optional(v.number()),
+			jonMode: v.optional(v.boolean()),
+			dynamicPrompt: v.optional(v.boolean()),
 		})),
 		content: v.string(),
 		reasoning: v.optional(v.string()),

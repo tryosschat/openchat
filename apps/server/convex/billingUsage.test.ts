@@ -419,8 +419,8 @@ describe("backgroundStream.startStream - daily limit enforcement", () => {
 		expect(jobId).toBeDefined();
 	});
 
-		test("rejects concurrent osschat streams for same user", async () => {
-			await asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
+		test("allows concurrent osschat streams across different chats", async () => {
+			const jobId1 = await asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
 				chatId,
 				userId,
 				messageId: "msg_4",
@@ -434,16 +434,17 @@ describe("backgroundStream.startStream - daily limit enforcement", () => {
 				title: "Test Chat 2",
 			});
 
-		await expect(
-			asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
+			const jobId2 = await asExternalId(t, externalId).mutation(api.backgroundStream.startStream, {
 				chatId: chatResult2.chatId,
 				userId,
 				messageId: "msg_5",
 				model: "test/model",
 				provider: "osschat",
 				messages: [{ role: "user", content: "Another message" }],
-			}),
-		).rejects.toThrow("Please wait for your current request to finish");
+			});
+
+			expect(jobId1).toBeDefined();
+			expect(jobId2).toBeDefined();
 	});
 
 	test("resets daily limit for a new date", async () => {

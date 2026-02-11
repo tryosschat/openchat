@@ -133,12 +133,18 @@ jobs:
         if: success()
         env:
           AUTOCHANGELOG_WEBHOOK_URL: ${{ secrets.AUTOCHANGELOG_WEBHOOK_URL }}
-          AUTOCHANGELOG_SECRET: ${{ secrets.AUTOCHANGELOG_WEBHOOK_SECRET }}
+          AUTOCHANGELOG_SECRET: ${{ secrets.AUTOCHANGELOG_SECRET }}
+          AUTOCHANGELOG_WEBHOOK_SECRET: ${{ secrets.AUTOCHANGELOG_WEBHOOK_SECRET }}
         run: |
           echo "📝 Generating changelog entry..."
 
+          # Support both secret names:
+          # - AUTOCHANGELOG_SECRET (preferred, matches AutoChangelog docs)
+          # - AUTOCHANGELOG_WEBHOOK_SECRET (legacy name used in this repo)
+          SIGNING_SECRET="${AUTOCHANGELOG_SECRET:-$AUTOCHANGELOG_WEBHOOK_SECRET}"
+
           # Skip if secrets are not configured
-          if [ -z "$AUTOCHANGELOG_WEBHOOK_URL" ] || [ -z "$AUTOCHANGELOG_SECRET" ]; then
+          if [ -z "$AUTOCHANGELOG_WEBHOOK_URL" ] || [ -z "$SIGNING_SECRET" ]; then
             echo "⚠️  AutoChangelog secrets not configured, skipping changelog generation"
             exit 0
           fi
@@ -152,7 +158,7 @@ jobs:
           fi
 
           # Compute HMAC-SHA256 signature
-          SIGNATURE="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$AUTOCHANGELOG_SECRET" | cut -d' ' -f2)"
+          SIGNATURE="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$SIGNING_SECRET" | cut -d' ' -f2)"
 
           # Send webhook request
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$AUTOCHANGELOG_WEBHOOK_URL" \
