@@ -99,6 +99,24 @@ function EyeIcon({ className }: { className?: string }) {
   );
 }
 
+function WrenchIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={cn("size-3.5", className)}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 1 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+      />
+    </svg>
+  );
+}
+
 function StarIcon({ className, filled }: { className?: string; filled?: boolean }) {
   return (
     <svg
@@ -166,24 +184,32 @@ function ModelItem({
         {model.name}
       </span>
 
-      <div className="flex items-center gap-1.5">
-        {hasReasoning && (
-          <span
-            className="flex size-5 items-center justify-center rounded-md bg-amber-500/15 text-amber-500 transition-transform duration-150 group-hover:scale-105"
-            title="Reasoning capable"
-          >
-            <BrainIcon className="size-3" />
-          </span>
-        )}
-        {hasVision && (
-          <span
-            className="flex size-5 items-center justify-center rounded-md bg-sky-500/15 text-sky-500 transition-transform duration-150 group-hover:scale-105"
-            title="Vision capable"
-          >
-            <EyeIcon className="size-3" />
-          </span>
-        )}
-        {model.isFree && (
+       <div className="flex items-center gap-1.5">
+         {hasReasoning && (
+           <span
+             className="flex size-5 items-center justify-center rounded-md bg-amber-500/15 text-amber-500 transition-transform duration-150 group-hover:scale-105"
+             title="Reasoning capable"
+           >
+             <BrainIcon className="size-3" />
+           </span>
+         )}
+         {hasVision && (
+           <span
+             className="flex size-5 items-center justify-center rounded-md bg-sky-500/15 text-sky-500 transition-transform duration-150 group-hover:scale-105"
+             title="Vision capable"
+           >
+             <EyeIcon className="size-3" />
+           </span>
+         )}
+         {model.toolCall && (
+           <span
+             className="flex size-5 items-center justify-center rounded-md bg-violet-500/15 text-violet-500 transition-transform duration-150 group-hover:scale-105"
+             title="Tool use capable"
+           >
+             <WrenchIcon className="size-3" />
+           </span>
+         )}
+         {model.isFree && (
           <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-500">
             Free
           </span>
