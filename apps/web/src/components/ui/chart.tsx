@@ -104,16 +104,16 @@ function ChartContainer({
 }
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme || config.color
-  )
-
-  if (!colorConfig.length) {
-    return null
-  }
-
-  // Build CSS variables safely with sanitization
+  // useMemo must be called unconditionally to satisfy Rules of Hooks
   const cssContent = React.useMemo(() => {
+    const colorConfig = Object.entries(config).filter(
+      ([, cfg]) => cfg.theme || cfg.color
+    )
+
+    if (!colorConfig.length) {
+      return null
+    }
+
     // Sanitize the ID to prevent selector injection
     const sanitizedId = id.replace(/[^a-zA-Z0-9_-]/g, "")
     if (sanitizedId !== id) {
@@ -144,8 +144,8 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
         return `${prefix} [data-chart="${sanitizedId}"] {\n${variables}\n}`
       })
       .filter(Boolean)
-      .join("\n")
-  }, [id, colorConfig])
+      .join("\n") || null
+  }, [id, config])
 
   if (!cssContent) {
     return null
