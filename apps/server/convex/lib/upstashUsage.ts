@@ -79,9 +79,9 @@ export async function incrementDailyUsageInUpstash(
 	if (!Number.isFinite(usageCents) || usageCents <= 0) return;
 
 	const key = usageCounterKey(userId, dateKey);
-	const expiresAt = getMidnightUtcEpochSeconds(dateKey);
 
 	try {
+		const expiresAt = getMidnightUtcEpochSeconds(dateKey);
 		await executePipeline([
 			["INCRBY", key, Math.floor(usageCents)],
 			["EXPIREAT", key, expiresAt],

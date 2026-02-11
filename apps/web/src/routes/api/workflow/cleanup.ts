@@ -92,7 +92,7 @@ async function runCleanupInline(payload: CleanupPayload): Promise<{
 
 	while (batches < MAX_CLEANUP_BATCHES) {
 		batches += 1;
-		const preview = await convexClient.action(api.crons.runCleanupBatchForWorkflow, {
+		const preview = await convexClient.action(api.cleanupAction.runCleanupBatchForWorkflow, {
 			workflowToken,
 			retentionDays,
 			batchSize,
@@ -102,7 +102,7 @@ async function runCleanupInline(payload: CleanupPayload): Promise<{
 			break;
 		}
 
-		const deletedBatch = await convexClient.action(api.crons.runCleanupBatchForWorkflow, {
+		const deletedBatch = await convexClient.action(api.cleanupAction.runCleanupBatchForWorkflow, {
 			workflowToken,
 			retentionDays,
 			batchSize,
@@ -146,7 +146,7 @@ const workflow = serve<CleanupPayload>(async (context) => {
 	while (batches < MAX_CLEANUP_BATCHES) {
 		batches += 1;
 		const preview = await context.run(`query-batch-${batches}`, async () => {
-			return convexClient.action(api.crons.runCleanupBatchForWorkflow, {
+			return convexClient.action(api.cleanupAction.runCleanupBatchForWorkflow, {
 				workflowToken,
 				retentionDays,
 				batchSize,
@@ -159,7 +159,7 @@ const workflow = serve<CleanupPayload>(async (context) => {
 		}
 
 		const deletedBatch = await context.run(`delete-batch-${batches}`, async () => {
-			return convexClient.action(api.crons.runCleanupBatchForWorkflow, {
+			return convexClient.action(api.cleanupAction.runCleanupBatchForWorkflow, {
 				workflowToken,
 				retentionDays,
 				batchSize,

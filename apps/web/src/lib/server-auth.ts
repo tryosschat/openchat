@@ -45,6 +45,7 @@ export async function getConvexAuthToken(request: Request): Promise<string | nul
 			if (response.ok) {
 				const data = (await response.json()) as { token?: string } | null;
 				if (data?.token) return data.token;
+				return null;
 			}
 			if (response.status >= 400 && response.status < 500) {
 				return null;
