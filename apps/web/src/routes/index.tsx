@@ -227,7 +227,7 @@ function HomePage() {
 
     const script = document.createElement('script');
     script.id = scriptId;
-    script.src = 'https://autochangelog.com/embed/opentech1/openchat/in-app.js';
+    script.src = 'https://autochangelog.com/embed/tryosschat/osschat/in-app.js';
     document.body.appendChild(script);
 
     return () => {

@@ -21,7 +21,6 @@ const ALLOWED_IMAGE_TYPES = [
 	"image/png",
 	"image/gif",
 	"image/webp",
-	"image/svg+xml",
 	"image/bmp",
 ] as const;
 

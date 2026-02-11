@@ -64,6 +64,10 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { usePersistentChat } from "@/hooks/use-persistent-chat";
+import {
+	SHORTCUT_EVENT_FOCUS_PROMPT_TOGGLE,
+	SHORTCUT_EVENT_STOP_GENERATION,
+} from "@/lib/shortcuts";
 
 function useIsMac() {
   const [isMac, setIsMac] = useState(true);
@@ -495,10 +499,34 @@ function ChainOfThought({
   );
 }
 
-// Helper to replace UTM source in URLs with osschat.dev
-function replaceUtmSource(url: string): string {
+// Allowed URL schemes for search result links (security: prevent XSS via javascript:/data: URLs)
+const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
+
+// Validates and sanitizes a URL, returning null if the URL is invalid or uses a disallowed scheme
+function getSafeUrl(url: string): string | null {
   try {
     const urlObj = new URL(url);
+    // Only allow http and https schemes to prevent XSS/phishing via javascript:, data:, etc.
+    if (!ALLOWED_URL_SCHEMES.has(urlObj.protocol)) {
+      return null;
+    }
+    return urlObj.toString();
+  } catch {
+    // If URL parsing fails, it's not a valid URL
+    return null;
+  }
+}
+
+// Helper to replace UTM source in URLs with osschat.dev
+// Returns null if the URL is invalid or uses a disallowed scheme
+function replaceUtmSource(url: string): string | null {
+  const safeUrl = getSafeUrl(url);
+  if (!safeUrl) {
+    return null;
+  }
+  
+  try {
+    const urlObj = new URL(safeUrl);
     // Replace any existing utm_source with osschat.dev
     if (urlObj.searchParams.has("utm_source")) {
       urlObj.searchParams.set("utm_source", "osschat.dev");
@@ -509,8 +537,8 @@ function replaceUtmSource(url: string): string {
     }
     return urlObj.toString();
   } catch {
-    // If URL parsing fails, return original
-    return url;
+    // If URL parsing fails after validation, return the safe URL
+    return safeUrl;
   }
 }
 
@@ -555,23 +583,29 @@ function SearchResultsDisplay({ results, isExpanded }: { results: unknown; isExp
   // When expanded, show full results
   return (
     <div className="space-y-2">
-      {searchResults.slice(0, 5).map((result: any, i: number) => (
+      {searchResults.slice(0, 5).map((result: any, i: number) => {
+        // Validate and sanitize the URL - returns null if unsafe (javascript:, data:, etc.)
+        const rawUrl = result.url || result.link;
+        const safeUrl = rawUrl ? replaceUtmSource(rawUrl) : null;
+        const displayTitle = result.title || result.name || (safeUrl ? rawUrl : null) || "Result";
+        
+        return (
         <div key={i} className="p-2 rounded-md bg-muted/30 border border-border/50">
           <div className="flex items-start gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 flex-shrink-0" />
             <div className="flex-1 min-w-0">
-              {result.url || result.link ? (
+              {safeUrl ? (
                 <a
-                  href={replaceUtmSource(result.url || result.link)}
+                  href={safeUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs font-medium text-primary hover:underline line-clamp-1"
                 >
-                  {result.title || result.name || result.url || result.link}
+                  {displayTitle}
                 </a>
               ) : (
                 <span className="text-xs font-medium text-foreground line-clamp-1">
-                  {result.title || result.name || "Result"}
+                  {displayTitle}
                 </span>
               )}
               {(result.description || result.snippet || result.content) && (
@@ -582,7 +616,8 @@ function SearchResultsDisplay({ results, isExpanded }: { results: unknown; isExp
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
       {searchResults.length > 5 && (
         <p className="text-xs text-muted-foreground">
           +{String(searchResults.length - 5)} more results
@@ -1297,38 +1332,40 @@ function ChatInterfaceContent({
     setIsSavingEdit(false);
   }, [chatId]);
 
-  // Cmd+L / Ctrl+L keybind to toggle focus on prompt input
+  // Global shortcuts dispatch custom events consumed here.
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && editingMessageId) {
-        e.preventDefault();
-        cancelEdit();
-        return;
-      }
-      // Check for Cmd+L (Mac) or Ctrl+L (Windows/Linux)
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
-        e.preventDefault();
+		const onFocusPromptToggle = () => {
+			const textarea = textareaRef.current;
+			if (!textarea) return;
 
-        const textarea = textareaRef.current;
-        if (!textarea) return;
+			const isTextareaFocused =
+				document.activeElement === textarea || textarea.contains(document.activeElement as Node);
 
-        // Toggle: if textarea is focused (or contains focus), blur; otherwise focus
-        const isTextareaFocused =
-          document.activeElement === textarea || textarea.contains(document.activeElement as Node);
+			if (isTextareaFocused) {
+				textarea.blur();
+				const activeElement = document.activeElement;
+				if (activeElement instanceof HTMLElement) {
+					activeElement.blur();
+				}
+				return;
+			}
 
-        if (isTextareaFocused) {
-          textarea.blur();
-          // Also blur the document to ensure we're not stuck in the input
-          (document.activeElement as HTMLElement).blur();
-        } else {
-          textarea.focus();
-        }
-      }
-    };
+			textarea.focus();
+		};
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [textareaRef, editingMessageId]);
+		const onStopGeneration = () => {
+			if (!isLoading) return;
+			stop();
+		};
+
+		window.addEventListener(SHORTCUT_EVENT_FOCUS_PROMPT_TOGGLE, onFocusPromptToggle);
+		window.addEventListener(SHORTCUT_EVENT_STOP_GENERATION, onStopGeneration);
+
+		return () => {
+			window.removeEventListener(SHORTCUT_EVENT_FOCUS_PROMPT_TOGGLE, onFocusPromptToggle);
+			window.removeEventListener(SHORTCUT_EVENT_STOP_GENERATION, onStopGeneration);
+		};
+	}, [isLoading, stop, textareaRef]);
 
   // Handler for StartScreen prompt selection - populates input and focuses
   const setInput = controller.textInput.setInput;
@@ -1361,6 +1398,19 @@ function ChatInterfaceContent({
     setInput(savedDraftRef.current);
     savedDraftRef.current = "";
   }, [setInput]);
+
+  // Escape closes message edit mode.
+  useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape" && editingMessageId) {
+				e.preventDefault();
+				cancelEdit();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, [cancelEdit, editingMessageId]);
 
   const handleSubmitWithDraftClear = useCallback(
     async (message: PromptInputMessage) => {

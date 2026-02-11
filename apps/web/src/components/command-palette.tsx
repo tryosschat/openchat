@@ -423,10 +423,3 @@ function CommandItem({
     </button>
   );
 }
-
-/**
- * Global keyboard shortcut listener for command palette
- * Should be used in the root layout
- */
-export function useCommandPaletteShortcut() {
-}

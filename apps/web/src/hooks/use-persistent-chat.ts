@@ -100,6 +100,33 @@ function getReasoningText(part: unknown): string | undefined {
 
 const TITLE_GENERATION_RETRY_DELAY_MS = 1500;
 
+/**
+ * Maps internal error messages to user-friendly descriptions.
+ * This prevents exposing implementation details like API structures,
+ * database field names, or third-party service error formats.
+ */
+function getUserFriendlyError(message: string): string {
+	const lowerMessage = message.toLowerCase();
+	
+	if (lowerMessage.includes("rate limit") || lowerMessage.includes("too many")) {
+		return "You're sending messages too quickly. Please wait a moment.";
+	}
+	if (lowerMessage.includes("unauthorized") || lowerMessage.includes("authentication")) {
+		return "Session expired. Please refresh the page.";
+	}
+	if (lowerMessage.includes("not found")) {
+		return "The requested resource could not be found.";
+	}
+	if (lowerMessage.includes("timeout") || lowerMessage.includes("timed out")) {
+		return "The request took too long. Please try again.";
+	}
+	if (lowerMessage.includes("network") || lowerMessage.includes("connection")) {
+		return "Network error. Please check your connection and try again.";
+	}
+	
+	return "An unexpected error occurred. Please try again.";
+}
+
 function sanitizeToolName(toolName: string | undefined): string {
 	if (!toolName || toolName.trim().length === 0) return "tool";
 	return toolName.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -726,8 +753,10 @@ export function usePersistentChat({
 						description: "Add your OpenRouter API key to continue.",
 					});
 				} else {
+					// Log detailed error for debugging, show generic message to user
+					console.error("[PersistentChat] Send message error:", parsedError.message);
 					toast.error("Failed to send message", {
-						description: parsedError.message,
+						description: getUserFriendlyError(parsedError.message),
 					});
 				}
 			}

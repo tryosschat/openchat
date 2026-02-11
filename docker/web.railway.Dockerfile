@@ -24,10 +24,10 @@ FROM oven/bun:1.3.0 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
-ENV HOST=0.0.0.0
 
 COPY --from=builder /app/apps/web/.output ./apps/web/.output
+COPY docker/web.railway.entrypoint.sh ./docker/web.railway.entrypoint.sh
 
-EXPOSE 3000
-CMD ["bun", "apps/web/.output/server/index.mjs"]
+RUN chmod +x ./docker/web.railway.entrypoint.sh
+
+CMD ["./docker/web.railway.entrypoint.sh"]

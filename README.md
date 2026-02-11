@@ -1,342 +1,119 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/opentech1/openchat/main/apps/web/public/logo.png" alt="OpenChat Logo" width="120" />
-
-  <h1>OpenChat</h1>
-
-  <p><strong>Open-source AI chat workspace you can self-host or run on OpenChat Cloud</strong></p>
-
-  <p>
-    <a href="https://github.com/opentech1/openchat/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/opentech1/openchat?style=flat-square&color=blue" alt="License" />
-    </a>
-    <a href="https://github.com/opentech1/openchat/stargazers">
-      <img src="https://img.shields.io/github/stars/opentech1/openchat?style=flat-square&color=yellow" alt="Stars" />
-    </a>
-    <a href="https://github.com/opentech1/openchat/network/members">
-      <img src="https://img.shields.io/github/forks/opentech1/openchat?style=flat-square&color=green" alt="Forks" />
-    </a>
-    <a href="https://github.com/opentech1/openchat/issues">
-      <img src="https://img.shields.io/github/issues/opentech1/openchat?style=flat-square&color=red" alt="Issues" />
-    </a>
-    <a href="https://github.com/opentech1/openchat/pulls">
-      <img src="https://img.shields.io/github/issues-pr/opentech1/openchat?style=flat-square&color=purple" alt="Pull Requests" />
-    </a>
-  </p>
-
-  <p>
-    <a href="#features">Features</a> •
-    <a href="#quick-start">Quick Start</a> •
-    <a href="#deployment">Deployment</a> •
-    <a href="#documentation">Docs</a> •
-    <a href="#contributing">Contributing</a>
-  </p>
+  <a href="https://osschat.dev">
+    <img src="https://raw.githubusercontent.com/opencoredev/openchat/main/apps/web/public/og-image.png" width="680" alt="OpenChat" />
+  </a>
+  <br /><br />
+  <a href="https://github.com/opencoredev/openchat/stargazers">
+    <img src="https://img.shields.io/github/stars/opencoredev/openchat?style=flat&color=38C9A8" alt="stars" />
+  </a>
+  &nbsp;
+  <a href="https://github.com/opencoredev/openchat/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/opencoredev/openchat?style=flat" alt="license" />
+  </a>
+  &nbsp;
+  <a href="https://discord.gg/gSYSrgcS">
+    <img src="https://img.shields.io/badge/discord-join-5865F2?style=flat&logo=discord&logoColor=white" alt="discord" />
+  </a>
 </div>
 
----
+<br />
 
-## Overview
+Open-source AI chat platform. Connects to **100+ models** through [OpenRouter](https://openrouter.ai), syncs conversations in real-time across devices with [Convex](https://convex.dev), and runs on TanStack Start + React 19 + Tailwind v4.
 
-OpenChat is a modern, open-source AI chat platform that combines a streaming TanStack Start frontend with Convex for real-time persistence and live sync. It features Better Auth (GitHub OAuth), OpenRouter integration for 100+ AI models, and a beautiful Tailwind v4 + shadcn design system.
+Use it free at **[osschat.dev](https://osschat.dev)**, bring your own API key, or self-host the whole thing.
 
-The monorepo is managed with Turborepo and Bun, keeping the web app, Convex functions, shared packages, and browser extension in lockstep.
+## What You Get
 
-## Features
-
-<table>
-  <tr>
-    <td width="50%">
-      <h3>🤖 Multi-Model AI Chat</h3>
-      <ul>
-        <li>100+ models via OpenRouter</li>
-        <li>Streaming responses with live updates</li>
-        <li>Per-user API key support</li>
-        <li>Dynamic model pricing & cost tracking</li>
-      </ul>
-    </td>
-    <td width="50%">
-      <h3>⚡ Real-Time Sync</h3>
-      <ul>
-        <li>Convex-powered live data sync</li>
-        <li>Optimistic UI updates</li>
-        <li>Cross-device persistence</li>
-        <li>Offline-ready architecture</li>
-      </ul>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <h3>🔐 Secure Authentication</h3>
-      <ul>
-        <li>GitHub OAuth via Better Auth</li>
-        <li>Automatic user sync to Convex</li>
-        <li>Session-aware analytics</li>
-        <li>Encrypted API key storage</li>
-      </ul>
-    </td>
-    <td>
-      <h3>🎨 Modern UI/UX</h3>
-      <ul>
-        <li>Tailwind CSS v4 + shadcn/ui</li>
-        <li>Dark mode support</li>
-        <li>Command palette navigation</li>
-        <li>Responsive design</li>
-      </ul>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <h3>🔍 Web Search</h3>
-      <ul>
-        <li>Built-in web search integration</li>
-        <li>Valyu API powered</li>
-        <li>Daily usage limits</li>
-        <li>Search result citations</li>
-      </ul>
-    </td>
-    <td>
-      <h3>📦 Self-Hostable</h3>
-      <ul>
-        <li>Docker Compose ready</li>
-        <li>Dokploy integration</li>
-        <li>Vercel deployment</li>
-        <li>Complete control of your data</li>
-      </ul>
-    </td>
-  </tr>
-</table>
-
-## Tech Stack
-
-| Layer | Technologies |
-|-------|-------------|
-| **Frontend** | TanStack Start (Vite), React 19, TypeScript, Tailwind CSS v4, shadcn/ui |
-| **Backend** | Convex (real-time database), Better Auth |
-| **AI** | OpenRouter (AI SDK 6), 100+ models |
-| **Tooling** | Bun 1.3+, Turborepo, Vitest, Oxlint |
-| **Analytics** | PostHog, Vercel Analytics |
-| **DevOps** | Docker, GitHub Actions |
-
-## Repository Structure
-
-```
-openchat/
-├── apps/
-│   ├── web/              # TanStack Start frontend
-│   │   ├── src/routes/   # File-based routing
-│   │   ├── src/components/
-│   │   └── src/stores/   # Zustand state management
-│   ├── server/           # Convex backend
-│   │   └── convex/       # Database schema & functions
-│   └── extension/        # Browser extension (WXT + React)
-├── docs/                 # Documentation
-│   └── deployment/       # Docker & Dokploy guides
-├── docker/               # Dockerfile images
-└── scripts/              # Operational scripts
-```
+- **100+ AI models** — GPT-4o, Claude, Llama, Gemini, and everything else on OpenRouter
+- **Real-time sync** — conversations persist and update across devices instantly
+- **Web search** — built-in search with source citations
+- **Self-hostable** — Docker Compose or one-click Vercel deploy
+- **BYOK** — bring your own OpenRouter key for unlimited usage
+- **Browser extension** — quick access from any tab
 
 ## Quick Start
 
-### Prerequisites
-
-- **Bun** `>= 1.3.0`
-- **Node.js** `>= 20` (for tooling)
-- **Convex CLI** (auto-installed during dev)
-
-### Installation
-
 ```bash
-# Clone the repository
-git clone https://github.com/opentech1/openchat.git
-cd openchat
-
-# Install dependencies
-bun install
-```
-
-### Configuration
-
-1. Copy environment templates:
-   ```bash
-   cp env.web.example apps/web/.env.local
-   cp env.server.example apps/server/.env.local
-   ```
-
-2. Configure required variables:
-   - `VITE_CONVEX_URL` - Convex deployment URL
-   - `VITE_CONVEX_SITE_URL` - Convex HTTP actions URL
-   - GitHub OAuth credentials (in Convex dashboard)
-   - `BETTER_AUTH_SECRET` - Session secret
-
-3. Optional variables:
-   - `OPENROUTER_API_KEY` - Server API key for free tier
-   - `VALYU_API_KEY` - Web search integration
-   - `VITE_POSTHOG_KEY` - Analytics
-   - `REDIS_URL` - Distributed rate limiting
-
-### Development
-
-```bash
-# Start full development environment
+git clone https://github.com/opencoredev/openchat.git
+cd openchat && bun install
+cp env.web.example apps/web/.env.local
+cp env.server.example apps/server/.env.local
+# fill in your env vars → docs/ENVIRONMENT.md
 bun dev
-
-# Frontend on http://localhost:3001
-# Convex backend runs automatically
 ```
 
-### Common Commands
+Frontend on `localhost:3000`, Convex starts automatically.
 
-| Command | Description |
-|---------|-------------|
-| `bun dev` | Start full dev environment |
-| `bun dev:web` | Frontend only |
-| `bun dev:server` | Convex backend only |
-| `bun check` | Lint with Oxlint |
-| `bun check-types` | Type checking |
-| `bun test` | Run test suite |
-| `bun build` | Production build |
+## Deploy
 
-## Deployment
+| Method | |
+|--------|---|
+| **Vercel + Convex Cloud** | [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/opencoredev/openchat) |
+| **Docker** | `docker compose up -d` |
 
-### Vercel (Recommended)
+Full setup in [deployment docs](docs/deployment/).
 
-Deploy the frontend to Vercel with Convex Cloud for the backend:
+<br />
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/opentech1/openchat)
+<div align="center">
+  <a href="https://star-history.com/#opencoredev/openchat&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=opencoredev/openchat&type=Date&theme=dark" />
+      <img src="https://api.star-history.com/svg?repos=opencoredev/openchat&type=Date" width="560" alt="Star History" />
+    </picture>
+  </a>
+</div>
 
-### Docker Compose
-
-```bash
-# Production deployment
-docker compose up -d
-```
-
-See [`docs/deployment/`](docs/deployment/) for detailed Docker and Dokploy guides.
-
-### Rate Limiting
-
-**Single Instance (default):** In-memory rate limiting, no setup required.
-
-**Multi-Instance:** Enable Redis for distributed rate limiting:
-
-```bash
-# Set Redis URL
-export REDIS_URL=redis://localhost:6379
-
-# Or with Docker
-docker run -d -p 6379:6379 redis:alpine
-```
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [ENVIRONMENT.md](docs/ENVIRONMENT.md) | Environment variables guide |
-| [deployment/](docs/deployment/) | Docker & Dokploy setup |
-| [SYNC.md](docs/SYNC.md) | Real-time sync architecture |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=opencoredev/openchat&type=date&legend=top-left)](https://www.star-history.com/#opencoredev/openchat&type=date&legend=top-left)
+<br />
 
 ## Sponsors
 
-We're grateful to our sponsors who help make OpenChat possible:
-
-<table>
-  <tr>
-    <td align="center" width="20%">
-      <a href="https://convex.dev">
-        <picture>
-          <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/d80d057b-e651-49c3-a0eb-ee324274d549">
-          <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/04dee790-d23a-4aed-93bb-5943e7f9cd5c">
-          <img width="180" height="90" alt="Convex" src="https://github.com/user-attachments/assets/a7de908f-4226-44eb-a7c3-4fe7beb76897">
-        </picture>
-      </a>
-    </td>
-    <td align="center" width="20%">
-      <a href="https://greptile.com">
-        <img width="180" height="90" alt="Greptile" src="https://github.com/user-attachments/assets/0dc5a5c7-2196-4270-b609-ea5a40f7e13e">
-      </a>
-    </td>
-    <td align="center" width="20%">
-      <a href="https://gitbook.com">
-        <img width="180" height="90" alt="GitBook" src="https://github.com/user-attachments/assets/ef2d2c18-0b94-424c-af39-cd40e0238665">
-      </a>
-    </td>
-    <td align="center" width="20%">
-      <a href="https://sentry.io">
-        <img width="180" height="90" alt="Sentry" src="https://github.com/user-attachments/assets/26266fa9-67a0-4256-9530-614f7ca4d2f5">
-      </a>
-    </td>
-    <td align="center" width="20%">
-      <a href="https://graphite.dev">
-        <picture>
-          <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/opentech1/openchat/main/apps/web/public/sponsors/graphite-black.png">
-          <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/opentech1/openchat/main/apps/web/public/sponsors/graphite-white.png">
-          <img width="120" height="120" alt="Graphite" src="https://raw.githubusercontent.com/opentech1/openchat/main/apps/web/public/sponsors/graphite-black.png">
-        </picture>
-      </a>
-    </td>
-  </tr>
-</table>
-
 <p align="center">
-  <a href="https://github.com/sponsors/opentech1">
-    <img src="https://img.shields.io/badge/Become%20a%20Sponsor-❤️-pink?style=for-the-badge" alt="Become a Sponsor" />
+  <a href="https://convex.dev">
+    <picture>
+      <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/d80d057b-e651-49c3-a0eb-ee324274d549">
+      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/04dee790-d23a-4aed-93bb-5943e7f9cd5c">
+      <img height="34" alt="Convex" src="https://github.com/user-attachments/assets/d80d057b-e651-49c3-a0eb-ee324274d549">
+    </picture>
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://greptile.com">
+    <img height="34" alt="Greptile" src="https://github.com/user-attachments/assets/0dc5a5c7-2196-4270-b609-ea5a40f7e13e">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://gitbook.com">
+    <img height="34" alt="GitBook" src="https://github.com/user-attachments/assets/ef2d2c18-0b94-424c-af39-cd40e0238665">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://sentry.io">
+    <img height="34" alt="Sentry" src="https://github.com/user-attachments/assets/26266fa9-67a0-4256-9530-614f7ca4d2f5">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://graphite.dev">
+    <img height="34" alt="Graphite" src="https://avatars.githubusercontent.com/u/105563461?s=120">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://upstash.com">
+    <picture>
+      <source media="(prefers-color-scheme: light)" srcset="https://upstash.com/logo/upstash-white-bg.svg">
+      <source media="(prefers-color-scheme: dark)" srcset="https://upstash.com/logo/upstash-dark-bg.svg">
+      <img height="28" alt="Upstash" src="https://upstash.com/logo/upstash-dark-bg.svg">
+    </picture>
   </a>
 </p>
 
-## Contributors
+<p align="center">
+  <a href="https://github.com/sponsors/opencoredev">Become a sponsor</a>
+</p>
 
-Thanks to all the amazing people who have contributed to OpenChat!
+## Contributing
 
-<a href="https://github.com/opentech1/openchat/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=opentech1/openchat" alt="Contributors" />
+PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup and guidelines.
+
+<a href="https://github.com/opencoredev/openchat/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=opencoredev/openchat" />
 </a>
-
-### Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-
-- Use TypeScript with strict mode
-- Follow the existing code style (Oxlint enforced)
-- Write tests for new features
-- Update documentation as needed
-- Use conventional commits
-
-## Community
-
-- [GitHub Issues](https://github.com/opentech1/openchat/issues) - Bug reports & feature requests
-- [GitHub Discussions](https://github.com/opentech1/openchat/discussions) - Questions & community chat
-- [Discord](https://discord.gg/openchat) - Real-time community support
-
-## Security
-
-Found a security vulnerability? Please report it responsibly by emailing security@openchat.dev or through our [security policy](SECURITY.md).
 
 ## License
 
-OpenChat is open-source software licensed under the [GNU Affero General Public License v3](LICENSE).
-
----
-
-<div align="center">
-  <p>
-    <sub>Built with ❤️ by the OpenChat community</sub>
-  </p>
-  <p>
-    <a href="https://github.com/opentech1/openchat">
-      <img src="https://img.shields.io/badge/GitHub-Star%20Us-yellow?style=flat-square&logo=github" alt="Star on GitHub" />
-    </a>
-  </p>
-</div>
+[AGPL-3.0](LICENSE)
