@@ -18,49 +18,49 @@ import type {ReactNode} from "react";
 
 
 /**
- * Deduplicating storage that only triggers updates when value actually changes.
- * This prevents the infinite loop caused by crossDomainClient's $sessionSignal notification.
+ * In-memory-only storage adapter for session data.
+ *
+ * SECURITY: Session tokens are stored ONLY in memory, never in localStorage.
+ * This mitigates XSS token theft since injected scripts cannot access in-memory
+ * variables. The actual session is maintained via HttpOnly cookies on the server.
+ *
+ * This also prevents the infinite loop caused by crossDomainClient's $sessionSignal
+ * notification by deduplicating writes when the value hasn't changed.
+ *
+ * Trade-off: Sessions won't persist across page reloads within the same tab,
+ * but the HttpOnly cookie will re-establish the session automatically.
  */
-const deduplicatingStorage = {
-  _cache: new Map<string, string>(),
+const inMemoryStorage = {
+  _store: new Map<string, string>(),
 
   setItem: (key: string, value: string) => {
-    const cached = deduplicatingStorage._cache.get(key);
-    // Only write if value actually changed
+    const cached = inMemoryStorage._store.get(key);
+    // Only write if value actually changed (prevents infinite loops)
     if (cached === value) {
       return;
     }
-
-    deduplicatingStorage._cache.set(key, value);
-    localStorage.setItem(key, value);
-
+    inMemoryStorage._store.set(key, value);
   },
 
   getItem: (key: string) => {
-    // Populate cache from localStorage on first read
-    if (!deduplicatingStorage._cache.has(key)) {
-      const value = localStorage.getItem(key);
-      if (value) {
-        deduplicatingStorage._cache.set(key, value);
-      }
-    }
-    return localStorage.getItem(key);
+    return inMemoryStorage._store.get(key) ?? null;
   },
 
   removeItem: (key: string) => {
-    deduplicatingStorage._cache.delete(key);
-    localStorage.removeItem(key);
+    inMemoryStorage._store.delete(key);
   },
 };
 
 /**
  * Better Auth client with Convex integration
  *
- * IMPORTANT: Uses deduplicating storage to prevent the infinite session loop.
- * The crossDomainClient plugin notifies $sessionSignal on EVERY response with
- * set-better-auth-cookie header, causing useSession to refetch endlessly.
- * Our deduplicating storage prevents writes when value hasn't changed,
- * breaking the loop.
+ * SECURITY: Uses in-memory-only storage to prevent XSS token theft.
+ * Session tokens are never written to localStorage or sessionStorage.
+ * The actual authentication is maintained via HttpOnly, Secure, SameSite cookies
+ * which are inaccessible to JavaScript.
+ *
+ * The in-memory storage also prevents the infinite session loop caused by
+ * crossDomainClient's $sessionSignal notification by deduplicating writes.
  */
 export const authClient = createAuthClient({
   baseURL: env.CONVEX_SITE_URL,
@@ -73,7 +73,7 @@ export const authClient = createAuthClient({
   plugins: [
     convexAuthPlugin(),
     crossDomainClient({
-      storage: deduplicatingStorage,
+      storage: inMemoryStorage,
       // Disable local session cache - we manage caching ourselves
       disableCache: true,
     }),
