@@ -360,40 +360,33 @@ export const Route = createFileRoute("/api/chat")({
 
 					// Validate chat ownership before initializing Redis stream or setting active stream
 					if (chatId) {
-						const ownershipClient = await getConvexClientForRequest(request);
-						if (!ownershipClient) {
+						const convexClient = await getConvexClientForRequest(request);
+						if (!convexClient) {
 							return json({ error: "Unauthorized" }, { status: 401 });
 						}
-						const ownedChat = await ownershipClient.query(api.chats.get, {
+						const ownedChat = await convexClient.query(api.chats.get, {
 							chatId: chatId as Id<"chats">,
 							userId: convexUserId,
 						});
 						if (!ownedChat) {
 							return json({ error: "Unauthorized" }, { status: 403 });
 						}
-					}
 
-					if (chatId && redisReady) {
-						console.log("[Chat API POST] Initializing Redis stream for chat:", chatId);
-						await redis.stream.init(chatId, convexUserId, messageId);
-					}
+						if (redisReady) {
+							console.log("[Chat API POST] Initializing Redis stream for chat:", chatId);
+							await redis.stream.init(chatId, convexUserId, messageId);
+						}
 
-					if (chatId) {
-						const convexClient = await getConvexClientForRequest(request);
-						if (!convexClient) {
-							console.error("[Chat API] Convex auth token unavailable");
-						} else {
-							try {
-								console.log("[Chat API] Setting active stream:", streamId);
-								await convexClient.mutation(api.chats.setActiveStream, {
-									chatId: chatId as Id<"chats">,
-									userId: convexUserId,
-									streamId,
-								});
-								console.log("[Chat API] Active stream set successfully");
-							} catch (err) {
-								console.error("[Chat API] Failed to set active stream:", err);
-							}
+						try {
+							console.log("[Chat API] Setting active stream:", streamId);
+							await convexClient.mutation(api.chats.setActiveStream, {
+								chatId: chatId as Id<"chats">,
+								userId: convexUserId,
+								streamId,
+							});
+							console.log("[Chat API] Active stream set successfully");
+						} catch (err) {
+							console.error("[Chat API] Failed to set active stream:", err);
 						}
 					}
 
