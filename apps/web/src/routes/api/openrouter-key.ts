@@ -119,7 +119,7 @@ export const Route = createFileRoute("/api/openrouter-key")({
 								Math.ceil((rate.reset - Date.now()) / 1000),
 							);
 							return json(
-								{ error: "Too many key update attempts. Please try again shortly." },
+								{ error: "Too many key deletion attempts. Please try again shortly." },
 								{ status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
 							);
 						}

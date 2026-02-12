@@ -39,8 +39,6 @@ const streamOptionsValidator = v.object({
 	enableWebSearch: v.optional(v.boolean()),
 	supportsToolCalls: v.optional(v.boolean()),
 	maxSteps: v.optional(v.number()),
-	dynamicPrompt: v.optional(v.boolean()),
-	jonMode: v.optional(v.boolean()),
 });
 
 type ChainOfThoughtPart = {

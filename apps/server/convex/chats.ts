@@ -568,15 +568,15 @@ async function generateTitleFromSeed(
 				"HTTP-Referer": process.env.CONVEX_SITE_URL || "https://osschat.io",
 				"X-Title": "OSSChat",
 			},
-			body: JSON.stringify({
-				model: TITLE_MODEL_ID,
-					messages: [
-						{ role: "system", content: systemPrompt },
-						{ role: "user", content: normalizedSeed },
-					],
-				temperature: 0.2,
-				max_tokens: 32,
-			}),
+		body: JSON.stringify({
+			model: TITLE_MODEL_ID,
+			messages: [
+				{ role: "system", content: systemPrompt },
+				{ role: "user", content: normalizedSeed },
+			],
+			temperature: 0.2,
+			max_tokens: 32,
+		}),
 		});
 
 		if (!response.ok) {

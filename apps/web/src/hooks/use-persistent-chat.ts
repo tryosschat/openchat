@@ -8,7 +8,6 @@ import { useAuth } from "@/lib/auth-client";
 import { getModelById, getModelCapabilities, useModelStore, useModels } from "@/stores/model";
 import { useProviderStore } from "@/stores/provider";
 import { useStreamStore } from "@/stores/stream";
-import { useUIStore } from "@/stores/ui";
 import { analytics } from "@/lib/analytics";
 import { shouldTriggerAutoTitle } from "@/lib/title-generation";
 
@@ -298,8 +297,6 @@ export function usePersistentChat({
 	const { models } = useModels();
 	const activeProvider = useProviderStore((s) => s.activeProvider);
 	const webSearchEnabled = useProviderStore((s) => s.webSearchEnabled);
-	const jonMode = useUIStore((s) => s.jonMode);
-	const dynamicPrompt = useUIStore((s) => s.dynamicPrompt);
 
 	const [messages, setMessages] = useState<Array<UIMessage>>([]);
 	const [status, setStatus] = useState<"ready" | "submitted" | "streaming" | "error">("ready");
@@ -615,22 +612,20 @@ export function usePersistentChat({
 				});
 				allMsgs.push({ role: "user", content: message.text });
 
-				await startBackgroundStream({
-					chatId: targetChatId as Id<"chats">,
-					userId: convexUserId,
-					messageId: assistantMsgId,
-					model: runtimeModelId,
-					provider: activeProvider,
-					messages: allMsgs,
-					options: {
-						enableReasoning: runtimeReasoningEnabled,
-						reasoningEffort: runtimeReasoningEffort,
-						enableWebSearch: webSearchEnabled,
-						jonMode,
-						dynamicPrompt,
-						supportsToolCalls: runtimeSupportsToolCalls,
-					},
-				});
+			await startBackgroundStream({
+				chatId: targetChatId as Id<"chats">,
+				userId: convexUserId,
+				messageId: assistantMsgId,
+				model: runtimeModelId,
+				provider: activeProvider,
+				messages: allMsgs,
+				options: {
+					enableReasoning: runtimeReasoningEnabled,
+					reasoningEffort: runtimeReasoningEffort,
+					enableWebSearch: webSearchEnabled,
+					supportsToolCalls: runtimeSupportsToolCalls,
+				},
+			});
 
 				setStatus("streaming");
 				streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
@@ -724,23 +719,21 @@ export function usePersistentChat({
 				}
 			}
 		},
-			[
-				convexUserId,
-				isUserLoading,
-				user?.id,
-				messages,
-				messagesResult,
-				models,
-				activeProvider,
-				webSearchEnabled,
-				jonMode,
-				dynamicPrompt,
-				createChat,
-				sendMessages,
-				startBackgroundStream,
-				cleanupStaleJobs,
-			],
-		);
+		[
+			convexUserId,
+			isUserLoading,
+			user?.id,
+			messages,
+			messagesResult,
+			models,
+			activeProvider,
+			webSearchEnabled,
+			createChat,
+			sendMessages,
+			startBackgroundStream,
+			cleanupStaleJobs,
+		],
+	);
 
 	const editMessage = useCallback(
 		async (messageId: string, newContent: string) => {
@@ -831,72 +824,68 @@ export function usePersistentChat({
 						return { role: m.role, content: textPart?.text || "" };
 					});
 
-				await startBackgroundStream({
-					chatId: targetChatId,
-					userId: convexUserId,
-					messageId: assistantMsgId,
-					model: runtimeModelId,
-					provider: activeProvider,
-					messages: allMsgs,
-					options: {
-						enableReasoning: runtimeReasoningEnabled,
-						reasoningEffort: runtimeReasoningEffort,
-						enableWebSearch: webSearchEnabled,
-						jonMode,
-						dynamicPrompt,
-						supportsToolCalls: runtimeSupportsToolCalls,
-					},
-				});
+			await startBackgroundStream({
+				chatId: targetChatId,
+				userId: convexUserId,
+				messageId: assistantMsgId,
+				model: runtimeModelId,
+				provider: activeProvider,
+				messages: allMsgs,
+				options: {
+					enableReasoning: runtimeReasoningEnabled,
+					reasoningEffort: runtimeReasoningEffort,
+					enableWebSearch: webSearchEnabled,
+					supportsToolCalls: runtimeSupportsToolCalls,
+				},
+			});
 
-				const initialParts: UIMessage["parts"] = [];
-				if (runtimeReasoningEffort !== "none") {
-					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
-					initialParts.push(reasoningPart as UIMessage["parts"][number]);
-				}
-				initialParts.push({ type: "text", text: "", state: "streaming" });
-
-				setMessages((prev) => [
-					...prev,
-					{
-						id: assistantMsgId,
-						role: "assistant",
-						parts: initialParts,
-						metadata: {
-							reasoningRequested: runtimeReasoningEffort !== "none",
-							modelId: runtimeModelId,
-							provider: activeProvider,
-							reasoningEffort: runtimeReasoningEffort,
-							webSearchEnabled,
-							resumedFromActiveStream: false,
-						},
-					},
-				]);
-
-				setStatus("streaming");
-				streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
-			} catch (err) {
-				const parsedError = err instanceof Error ? err : new Error("Unknown error");
-				setError(parsedError);
-				setStatus("error");
-				toast.error("Failed to edit message", {
-					description: getUserFriendlyError(parsedError.message),
-				});
+			const initialParts: UIMessage["parts"] = [];
+			if (runtimeReasoningEffort !== "none") {
+				const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
+				initialParts.push(reasoningPart as UIMessage["parts"][number]);
 			}
-		},
-		[
-			convexUserId,
-			messages,
-			messagesResult,
-			models,
-			activeProvider,
-			webSearchEnabled,
-			jonMode,
-			dynamicPrompt,
-			editAndRegenerate,
-			startBackgroundStream,
-			cleanupStaleJobs,
-		],
-	);
+			initialParts.push({ type: "text", text: "", state: "streaming" });
+
+			setMessages((prev) => [
+				...prev,
+				{
+					id: assistantMsgId,
+					role: "assistant",
+					parts: initialParts,
+					metadata: {
+						reasoningRequested: runtimeReasoningEffort !== "none",
+						modelId: runtimeModelId,
+						provider: activeProvider,
+						reasoningEffort: runtimeReasoningEffort,
+						webSearchEnabled,
+						resumedFromActiveStream: false,
+					},
+				},
+			]);
+
+			setStatus("streaming");
+			streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
+		} catch (err) {
+			const parsedError = err instanceof Error ? err : new Error("Unknown error");
+			setError(parsedError);
+			setStatus("error");
+			toast.error("Failed to edit message", {
+				description: getUserFriendlyError(parsedError.message),
+			});
+		}
+	},
+	[
+		convexUserId,
+		messages,
+		messagesResult,
+		models,
+		activeProvider,
+		webSearchEnabled,
+		editAndRegenerate,
+		startBackgroundStream,
+		cleanupStaleJobs,
+	],
+);
 
 	const retryMessage = useCallback(
 		async (messageId: string, overrideModelId?: string) => {
@@ -981,72 +970,68 @@ export function usePersistentChat({
 						return { role: m.role, content: textPart?.text || "" };
 					});
 
-				await startBackgroundStream({
-					chatId: targetChatId,
-					userId: convexUserId,
-					messageId: assistantMsgId,
-					model: runtimeModelId,
-					provider: activeProvider,
-					messages: allMsgs,
-					options: {
-						enableReasoning: runtimeReasoningEnabled,
-						reasoningEffort: runtimeReasoningEffort,
-						enableWebSearch: webSearchEnabled,
-						jonMode,
-						dynamicPrompt,
-						supportsToolCalls: runtimeSupportsToolCalls,
-					},
-				});
+			await startBackgroundStream({
+				chatId: targetChatId,
+				userId: convexUserId,
+				messageId: assistantMsgId,
+				model: runtimeModelId,
+				provider: activeProvider,
+				messages: allMsgs,
+				options: {
+					enableReasoning: runtimeReasoningEnabled,
+					reasoningEffort: runtimeReasoningEffort,
+					enableWebSearch: webSearchEnabled,
+					supportsToolCalls: runtimeSupportsToolCalls,
+				},
+			});
 
-				const initialParts: UIMessage["parts"] = [];
-				if (runtimeReasoningEffort !== "none") {
-					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
-					initialParts.push(reasoningPart as UIMessage["parts"][number]);
-				}
-				initialParts.push({ type: "text", text: "", state: "streaming" });
-
-				setMessages((prev) => [
-					...prev,
-					{
-						id: assistantMsgId,
-						role: "assistant",
-						parts: initialParts,
-						metadata: {
-							reasoningRequested: runtimeReasoningEffort !== "none",
-							modelId: runtimeModelId,
-							provider: activeProvider,
-							reasoningEffort: runtimeReasoningEffort,
-							webSearchEnabled,
-							resumedFromActiveStream: false,
-						},
-					},
-				]);
-
-				setStatus("streaming");
-				streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
-			} catch (err) {
-				const parsedError = err instanceof Error ? err : new Error("Unknown error");
-				setError(parsedError);
-				setStatus("error");
-				toast.error("Failed to retry message", {
-					description: getUserFriendlyError(parsedError.message),
-				});
+			const initialParts: UIMessage["parts"] = [];
+			if (runtimeReasoningEffort !== "none") {
+				const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
+				initialParts.push(reasoningPart as UIMessage["parts"][number]);
 			}
-		},
-		[
-			convexUserId,
-			messages,
-			messagesResult,
-			models,
-			activeProvider,
-			webSearchEnabled,
-			jonMode,
-			dynamicPrompt,
-			retryMessageMut,
-			startBackgroundStream,
-			cleanupStaleJobs,
-		],
-	);
+			initialParts.push({ type: "text", text: "", state: "streaming" });
+
+			setMessages((prev) => [
+				...prev,
+				{
+					id: assistantMsgId,
+					role: "assistant",
+					parts: initialParts,
+					metadata: {
+						reasoningRequested: runtimeReasoningEffort !== "none",
+						modelId: runtimeModelId,
+						provider: activeProvider,
+						reasoningEffort: runtimeReasoningEffort,
+						webSearchEnabled,
+						resumedFromActiveStream: false,
+					},
+				},
+			]);
+
+			setStatus("streaming");
+			streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
+		} catch (err) {
+			const parsedError = err instanceof Error ? err : new Error("Unknown error");
+			setError(parsedError);
+			setStatus("error");
+			toast.error("Failed to retry message", {
+				description: getUserFriendlyError(parsedError.message),
+			});
+		}
+	},
+	[
+		convexUserId,
+		messages,
+		messagesResult,
+		models,
+		activeProvider,
+		webSearchEnabled,
+		retryMessageMut,
+		startBackgroundStream,
+		cleanupStaleJobs,
+	],
+);
 
 	const forkMessage = useCallback(
 		async (messageId: string, overrideModelId?: string) => {
@@ -1118,47 +1103,43 @@ export function usePersistentChat({
 
 				await cleanupStaleJobs({ userId: convexUserId }).catch(() => {});
 
-				const assistantMsgId = crypto.randomUUID();
-				await startBackgroundStream({
-					chatId: newChatId,
-					userId: convexUserId,
-					messageId: assistantMsgId,
-					model: runtimeModelId,
-					provider: activeProvider,
-					messages: msgsUpToFork,
-					options: {
-						enableReasoning: runtimeReasoningEnabled,
-						reasoningEffort: runtimeReasoningEffort,
-						enableWebSearch: webSearchEnabled,
-						jonMode,
-						dynamicPrompt,
-						supportsToolCalls: runtimeSupportsToolCalls,
-					},
-				});
+			const assistantMsgId = crypto.randomUUID();
+			await startBackgroundStream({
+				chatId: newChatId,
+				userId: convexUserId,
+				messageId: assistantMsgId,
+				model: runtimeModelId,
+				provider: activeProvider,
+				messages: msgsUpToFork,
+				options: {
+					enableReasoning: runtimeReasoningEnabled,
+					reasoningEffort: runtimeReasoningEffort,
+					enableWebSearch: webSearchEnabled,
+					supportsToolCalls: runtimeSupportsToolCalls,
+				},
+			});
 
-				return newChatId;
-			} catch (err) {
-				const parsedError = err instanceof Error ? err : new Error("Unknown error");
-				toast.error("Failed to branch off", {
-					description: parsedError.message,
-				});
-				return undefined;
-			}
-		},
-		[
-			convexUserId,
-			messages,
-			models,
-			activeProvider,
-			webSearchEnabled,
-			jonMode,
-			dynamicPrompt,
-			forkChatMut,
-			cleanupStaleJobs,
-			startBackgroundStream,
-			messagesResult,
-		],
-	);
+			return newChatId;
+		} catch (err) {
+			const parsedError = err instanceof Error ? err : new Error("Unknown error");
+			toast.error("Failed to branch off", {
+				description: parsedError.message,
+			});
+			return undefined;
+		}
+	},
+	[
+		convexUserId,
+		messages,
+		models,
+		activeProvider,
+		webSearchEnabled,
+		forkChatMut,
+		cleanupStaleJobs,
+		startBackgroundStream,
+		messagesResult,
+	],
+);
 
 	const stop = useCallback(() => {
 		setStatus("ready");

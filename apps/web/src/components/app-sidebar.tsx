@@ -452,7 +452,7 @@ export function AppSidebar({
       console.warn("[Chat] Title regeneration failed:", error);
       const message = error instanceof Error ? error.message : "";
       if (message.toLowerCase().includes("too many title generations")) {
-        toast.error(message);
+        toast.error("Too many title generations. Please try again later.");
       } else {
         toast.error("Failed to regenerate chat name");
       }

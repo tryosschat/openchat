@@ -800,23 +800,10 @@ export const deleteUserRecord = internalMutation({
 			paginationOpts: { cursor: null, numItems: 1 },
 		});
 
-		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
-			const result = await ctx.runMutation(internal.users.deleteUserChatReadStatuses, {
-				userId: args.userId,
-			});
-			if (!result.hasMore) {
-				break;
-			}
-		}
-
-		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
-			const result = await ctx.runMutation(internal.users.deleteUserPromptTemplates, {
-				userId: args.userId,
-			});
-			if (!result.hasMore) {
-				break;
-			}
-		}
+		// chatReadStatuses and promptTemplates are now deleted in separate
+		// workflow steps (delete-chat-read-statuses / delete-prompt-templates)
+		// via deleteAccountWorkflowStep, ensuring each batch runs in its own
+		// transaction and avoids hitting Convex per-transaction write limits.
 
 		const profile = await ctx.db
 			.query("profiles")
@@ -842,6 +829,8 @@ export const deleteAccountWorkflowStep = action({
 			v.literal("delete-messages"),
 			v.literal("delete-chats"),
 			v.literal("delete-files"),
+			v.literal("delete-chat-read-statuses"),
+			v.literal("delete-prompt-templates"),
 			v.literal("delete-user"),
 		),
 		batchSize: v.optional(v.number()),
@@ -878,6 +867,14 @@ export const deleteAccountWorkflowStep = action({
 					userId,
 					batchSize: args.batchSize,
 				});
+			case "delete-chat-read-statuses":
+				return await ctx.runMutation(internal.users.deleteUserChatReadStatuses, {
+					userId,
+				});
+			case "delete-prompt-templates":
+				return await ctx.runMutation(internal.users.deleteUserPromptTemplates, {
+					userId,
+				});
 			case "delete-user": {
 				const result: { success: boolean } = await ctx.runMutation(
 					internal.users.deleteUserRecord,
@@ -897,17 +894,11 @@ export const deleteAccountWorkflowStep = action({
 });
 
 /**
- * Permanently delete a user account and all associated data.
- * This is an irreversible action that removes:
- * - All chats and messages
- * - All file uploads and storage blobs
- * - All prompt templates
- * - User profile and settings
- * - Better Auth sessions and account links
- *
- * Note: For users with very large amounts of data, this mutation may approach
- * Convex timeout limits. Consider breaking into scheduled jobs for production
- * use with high-volume users.
+ * @deprecated Use deleteAccountWorkflowStep (action) instead.
+ * This mutation runs all deletes in a single transaction, which can hit
+ * Convex per-transaction write limits for users with large amounts of data.
+ * The workflow-based approach (deleteAccountWorkflowStep) isolates each
+ * deletion step into its own transaction.
  */
 export const deleteAccount = mutation({
 	args: {

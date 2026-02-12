@@ -24,7 +24,9 @@ type DeleteStep =
 	| "delete-stream-jobs"
 	| "delete-messages"
 	| "delete-chats"
-	| "delete-files";
+	| "delete-files"
+	| "delete-chat-read-statuses"
+	| "delete-prompt-templates";
 
 const MAX_DELETE_BATCHES = 500;
 
@@ -167,6 +169,8 @@ async function runDeleteAccountInline(
 	const deletedMessages = await runBatchStep("delete-messages");
 	const deletedChats = await runBatchStep("delete-chats");
 	const deletedFiles = await runBatchStep("delete-files");
+	await runBatchStep("delete-chat-read-statuses");
+	await runBatchStep("delete-prompt-templates");
 	const deleteUserResult = await convexClient.action(api.users.deleteAccountWorkflowStep, {
 		userId: convexUserId,
 		externalId,
@@ -236,6 +240,8 @@ const workflow = serve<DeleteAccountPayload>(async (context) => {
 	const deletedMessages = await runBatchStep("delete-messages", "delete-messages");
 	const deletedChats = await runBatchStep("delete-chats", "delete-chats");
 	const deletedFiles = await runBatchStep("delete-files", "delete-files");
+	await runBatchStep("delete-chat-read-statuses", "delete-chat-read-statuses");
+	await runBatchStep("delete-prompt-templates", "delete-prompt-templates");
 
 	const deleteUserResult = await context.run("delete-user", async () => {
 		return convexClient.action(api.users.deleteAccountWorkflowStep, {

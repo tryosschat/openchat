@@ -124,10 +124,14 @@ http.route({
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Cleanup batch failed";
+      const KNOWN_VALIDATION_ERRORS = [
+        "retentionDays must be between 1 and 3650",
+        "batchSize must be between 1 and 1000",
+      ];
       const status =
         message === "Unauthorized"
           ? 401
-          : message.includes("must be between")
+          : KNOWN_VALIDATION_ERRORS.includes(message)
             ? 400
             : 500;
       if (status === 500) {
