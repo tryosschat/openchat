@@ -127,7 +127,7 @@ http.route({
       const status =
         message === "Unauthorized"
           ? 401
-          : message.includes("must be between") || message.includes("Invalid")
+          : message.includes("must be between")
             ? 400
             : 500;
       if (status === 500) {

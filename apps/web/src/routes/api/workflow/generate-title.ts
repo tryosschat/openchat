@@ -357,7 +357,7 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 					try {
 						const result = await runGenerateTitleInline(normalizedPayload, authToken);
 						if (!result.saved) {
-							const status = result.reason === "missing_openrouter_key" ? 400 : 409;
+							const status = result.reason === "missing_openrouter_key" ? 400 : 422;
 							return json(result, { status });
 						}
 						return json(result, { status: 200 });
@@ -375,7 +375,7 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 					try {
 						const result = await runGenerateTitleInline(normalizedPayload, authToken);
 						if (!result.saved) {
-							const status = result.reason === "missing_openrouter_key" ? 400 : 409;
+							const status = result.reason === "missing_openrouter_key" ? 400 : 422;
 							return json(result, { status });
 						}
 						return json(result, { status: 200 });

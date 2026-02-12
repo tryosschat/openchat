@@ -79,6 +79,7 @@ function getClientIp(request: Request): string | null {
 	}
 
 	if (TRUST_PROXY_MODE === "true") {
+		console.warn("[Models API] TRUST_PROXY=true uses shared rate-limit bucket");
 		return UNKNOWN_CLIENT_IP;
 	}
 	console.warn("[Models API] Unrecognized TRUST_PROXY value, using shared rate-limit bucket");

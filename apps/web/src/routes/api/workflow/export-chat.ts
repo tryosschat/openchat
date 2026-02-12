@@ -262,7 +262,14 @@ export const Route = createFileRoute("/api/workflow/export-chat")({
 				if (exportRatelimit) {
 					const rl = await exportRatelimit.limit(`export-chat:${authConvexUser._id}`);
 					if (!rl.success) {
-						return json({ error: "Rate limit exceeded" }, { status: 429 });
+						const retryAfterSeconds = Math.max(
+							1,
+							Math.ceil((rl.reset - Date.now()) / 1000),
+						);
+						return json(
+							{ error: "Rate limit exceeded" },
+							{ status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+						);
 					}
 				}
 

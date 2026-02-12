@@ -1460,16 +1460,9 @@ export const executeStream = internalAction({
 					console.warn("[Usage] Upstash refund adjustment failed", adjustError);
 				}
 			}
-			const rawErrorMessage = error instanceof Error ? error.message : "Unknown error";
-			const safeErrorMessage =
-				rawErrorMessage === "Daily usage limit reached. Connect your OpenRouter account to continue." ||
-				rawErrorMessage === "Usage tracking temporarily unavailable. Please retry shortly." ||
-				rawErrorMessage === "Chat not found or unauthorized"
-					? rawErrorMessage
-					: "An error occurred while processing your request.";
 			await ctx.runMutation(internal.backgroundStream.failStream, {
 				jobId: args.jobId,
-				error: safeErrorMessage,
+				error: "An error occurred while processing your request.",
 				partialContent: fullContent,
 			});
 		}
