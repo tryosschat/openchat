@@ -79,9 +79,8 @@ function hasWorkflowSigningKeysConfigured(): boolean {
 
 function getWorkflowCallbackUrl(request: Request): string | null {
 	const configuredBase =
-		process.env.VITE_CONVEX_SITE_URL ||
-		process.env.CONVEX_SITE_URL ||
-		process.env.VITE_APP_URL;
+		process.env.VITE_APP_URL ||
+		(process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
 	if (!configuredBase) return null;
 
 	const pathname = new URL(request.url).pathname;

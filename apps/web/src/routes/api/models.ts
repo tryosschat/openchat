@@ -113,24 +113,23 @@ export const Route = createFileRoute("/api/models")({
 				if (modelsIpRatelimit) {
 					const ip = getClientIp(request);
 					if (!ip) {
-						console.warn("[Models API] Trusted proxy IP unavailable, skipping rate limit");
-					} else {
-						const rl = await modelsIpRatelimit.limit(ip);
-						if (!rl.success) {
-							const retryAfterSeconds = Math.max(
-								1,
-								Math.ceil((rl.reset - Date.now()) / 1000),
-							);
-							return json(
-								{ error: "Rate limit exceeded" },
-								{
-									status: 429,
-									headers: {
-										"Retry-After": String(retryAfterSeconds),
-									},
+						console.warn("[Models API] Trusted proxy IP unavailable, using shared rate-limit bucket");
+					}
+					const rl = await modelsIpRatelimit.limit(ip ?? UNKNOWN_CLIENT_IP);
+					if (!rl.success) {
+						const retryAfterSeconds = Math.max(
+							1,
+							Math.ceil((rl.reset - Date.now()) / 1000),
+						);
+						return json(
+							{ error: "Rate limit exceeded" },
+							{
+								status: 429,
+								headers: {
+									"Retry-After": String(retryAfterSeconds),
 								},
-							);
-						}
+							},
+						);
 					}
 				}
 
