@@ -8,9 +8,8 @@ import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth
 import {
 	exportRatelimit,
 	shouldFailClosedForMissingUpstash,
-	workflowClient,
 } from "@/lib/upstash";
-import { getWorkflowAuthToken, storeWorkflowAuthToken } from "@/lib/workflow-auth-token";
+import { getWorkflowAuthToken } from "@/lib/workflow-auth-token";
 
 type ExportFormat = "markdown" | "json";
 const MAX_EXPORT_BYTES = 10 * 1024 * 1024;
@@ -72,22 +71,12 @@ function parseExportPayload(raw: unknown): ExportChatPayload | null {
 	};
 }
 
-function isLocalWorkflowExecutionEnabled(): boolean {
-	return process.env.NODE_ENV !== "production";
-}
-
 function formatRole(role: string): string {
 	if (role === "assistant") return "Assistant";
 	if (role === "system") return "System";
 	if (role === "tool") return "Tool";
 	if (role === "user") return "User";
 	return "Message";
-}
-
-function getWorkflowTriggerHeaders(): Record<string, string> {
-	return {
-		"Content-Type": "application/json",
-	};
 }
 
 function hasWorkflowSigningKeysConfigured(): boolean {
@@ -288,56 +277,23 @@ export const Route = createFileRoute("/api/workflow/export-chat")({
 					userId: authConvexUser._id,
 				};
 
-				if (isLocalWorkflowExecutionEnabled()) {
-					try {
-						const result = await runExportChatInline(normalizedPayload, authToken);
-						return json(result, { status: 200 });
-					} catch (error) {
-						const message = error instanceof Error ? error.message : "Failed to export chat";
-						const status =
-							message === "Unauthorized"
-								? 401
-								: message === "Chat not found"
-									? 404
-									: message === "Export too large"
-										? 413
-										: 500;
-						if (status === 500) {
-							console.error("[Workflow][export-chat] Local execution failed", error);
-						}
-						return json({ error: status === 500 ? "Internal server error" : message }, { status });
-					}
-				}
-
-				if (!workflowClient) {
-					return json(
-						{ error: "Workflow queue is not configured (missing QSTASH_TOKEN)" },
-						{ status: 500 },
-					);
-				}
-
 				try {
-					const authTokenRef = await storeWorkflowAuthToken(authToken);
-					if (!authTokenRef) {
-						return json(
-							{ error: "Workflow auth cache is not configured" },
-							{ status: 500 },
-						);
-					}
-
-					const triggerHeaders = getWorkflowTriggerHeaders();
-					const { workflowRunId } = await workflowClient.trigger({
-						url: request.url,
-						body: {
-							...normalizedPayload,
-							authTokenRef,
-						},
-						headers: triggerHeaders,
-					});
-					return json({ queued: true, workflowRunId }, { status: 202 });
+					const result = await runExportChatInline(normalizedPayload, authToken);
+					return json(result, { status: 200 });
 				} catch (error) {
-					console.error("[Workflow][export-chat] Queue trigger failed", error);
-					return json({ error: "Internal server error" }, { status: 500 });
+					const message = error instanceof Error ? error.message : "Failed to export chat";
+					const status =
+						message === "Unauthorized"
+							? 401
+							: message === "Chat not found"
+								? 404
+								: message === "Export too large"
+									? 413
+									: 500;
+					if (status === 500) {
+						console.error("[Workflow][export-chat] Inline export failed", error);
+					}
+					return json({ error: status === 500 ? "Internal server error" : message }, { status });
 				}
 			},
 		},
