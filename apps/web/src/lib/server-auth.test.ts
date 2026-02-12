@@ -13,6 +13,14 @@ function requestWithCookie(cookie: string): Request {
 	} as unknown as Request;
 }
 
+function createJwt(expSecondsFromNow = 3600): string {
+	const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+	const payload = Buffer.from(
+		JSON.stringify({ exp: Math.floor(Date.now() / 1000) + expSecondsFromNow }),
+	).toString("base64url");
+	return `${header}.${payload}.signature`;
+}
+
 describe("server-auth.getConvexAuthToken", () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
@@ -32,9 +40,10 @@ describe("server-auth.getConvexAuthToken", () => {
 		vi.stubEnv("CONVEX_SITE_URL", "");
 
 		const { getConvexAuthToken } = await loadModule();
-		const request = requestWithCookie("better-auth.convex_jwt=abc%2E123%2Exyz; other=value");
+		const fallbackJwt = createJwt();
+		const request = requestWithCookie(`better-auth.convex_jwt=${fallbackJwt}; other=value`);
 
-		await expect(getConvexAuthToken(request)).resolves.toBe("abc.123.xyz");
+		await expect(getConvexAuthToken(request)).resolves.toBe(fallbackJwt);
 	});
 
 	it("prefers token endpoint when it returns a valid token", async () => {
@@ -59,9 +68,10 @@ describe("server-auth.getConvexAuthToken", () => {
 		vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
 
 		const { getConvexAuthToken } = await loadModule();
-		const request = requestWithCookie("better-auth.convex_jwt=fallback.token.value");
+		const fallbackJwt = createJwt();
+		const request = requestWithCookie(`better-auth.convex_jwt=${fallbackJwt}`);
 
-		await expect(getConvexAuthToken(request)).resolves.toBe("fallback.token.value");
+		await expect(getConvexAuthToken(request)).resolves.toBe(fallbackJwt);
 	});
 
 	it("returns null when token endpoint explicitly rejects the request", async () => {
@@ -91,8 +101,9 @@ describe("server-auth.getConvexAuthToken", () => {
 		);
 
 		const { getConvexAuthToken } = await loadModule();
-		const request = requestWithCookie("better-auth.convex_jwt=fallback.token.value");
+		const fallbackJwt = createJwt();
+		const request = requestWithCookie(`better-auth.convex_jwt=${fallbackJwt}`);
 
-		await expect(getConvexAuthToken(request)).resolves.toBe("fallback.token.value");
+		await expect(getConvexAuthToken(request)).resolves.toBe(fallbackJwt);
 	});
 });

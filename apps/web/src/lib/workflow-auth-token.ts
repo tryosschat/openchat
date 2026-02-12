@@ -2,7 +2,7 @@ import { upstashRedis } from "@/lib/upstash";
 import { decryptSecret, encryptSecret } from "@/lib/server-crypto";
 
 const WORKFLOW_AUTH_TOKEN_PREFIX = "workflow:auth-token";
-const WORKFLOW_AUTH_TOKEN_TTL_SECONDS = 60 * 60;
+const WORKFLOW_AUTH_TOKEN_TTL_SECONDS = 60 * 5;
 
 function createWorkflowAuthTokenKey(): string {
 	return `${WORKFLOW_AUTH_TOKEN_PREFIX}:${crypto.randomUUID()}`;

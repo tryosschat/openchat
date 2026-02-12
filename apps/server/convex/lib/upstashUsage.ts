@@ -46,7 +46,7 @@ async function executePipeline(commands: Array<Array<string | number>>): Promise
 
 	if (!response.ok) {
 		const body = await response.text();
-		throw new Error(`Upstash pipeline failed: ${response.status} ${body}`);
+		throw new Error(`Upstash pipeline failed: ${response.status} ${body.slice(0, 200)}`);
 	}
 
 	const json = (await response.json()) as PipelineResult;
@@ -175,10 +175,23 @@ export async function adjustDailyUsageInUpstash(
 
 	try {
 		const expiresAt = getMidnightUtcEpochSeconds(dateKey);
-		await executePipeline([
+		const result = await executePipeline([
 			["INCRBY", key, roundedDelta],
 			["EXPIREAT", key, expiresAt],
 		]);
+		const total = result?.[0]?.result;
+		const parsedTotal =
+			typeof total === "number"
+				? total
+				: typeof total === "string"
+					? Number.parseInt(total, 10)
+					: null;
+		if (typeof parsedTotal === "number" && Number.isFinite(parsedTotal) && parsedTotal < 0) {
+			await executePipeline([
+				["SET", key, 0],
+				["EXPIREAT", key, expiresAt],
+			]);
+		}
 	} catch (error) {
 		if (shouldLogUpstashUsageErrors()) {
 			console.warn("[Usage] Upstash adjust failed", error);

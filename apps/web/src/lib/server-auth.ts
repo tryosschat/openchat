@@ -18,8 +18,7 @@ const CONVEX_SITE_URL =
 	process.env.VITE_CONVEX_SITE_URL || process.env.CONVEX_SITE_URL;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const ALLOW_AUTH_COOKIE_FALLBACK = process.env.ALLOW_AUTH_COOKIE_FALLBACK === "true";
-const IS_LOCAL_DEV =
-	!IS_PRODUCTION && (ALLOW_AUTH_COOKIE_FALLBACK || process.env.NODE_ENV === "test");
+const IS_LOCAL_DEV = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
 
 if (IS_PRODUCTION && ALLOW_AUTH_COOKIE_FALLBACK) {
 	throw new Error("ALLOW_AUTH_COOKIE_FALLBACK must not be enabled in production");
@@ -39,6 +38,23 @@ function getCookieValue(cookieHeader: string, name: string): string | null {
 		}
 	}
 	return null;
+}
+
+function isJwtNotExpired(jwt: string): boolean {
+	const segments = jwt.split(".");
+	if (segments.length !== 3) return false;
+	const payloadSegment = segments[1];
+	if (!payloadSegment) return false;
+
+	try {
+		const payload = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8")) as {
+			exp?: unknown;
+		};
+		if (typeof payload.exp !== "number") return false;
+		return payload.exp * 1000 > Date.now();
+	} catch {
+		return false;
+	}
 }
 
 export async function getConvexAuthToken(request: Request): Promise<string | null> {
@@ -71,7 +87,7 @@ export async function getConvexAuthToken(request: Request): Promise<string | nul
 
 	if (!IS_LOCAL_DEV) return null;
 	const fallbackToken = getCookieValue(cookie, "better-auth.convex_jwt");
-	if (!fallbackToken || fallbackToken.split(".").length !== 3) {
+	if (!fallbackToken || !isJwtNotExpired(fallbackToken)) {
 		return null;
 	}
 	return fallbackToken;
