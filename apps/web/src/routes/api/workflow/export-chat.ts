@@ -61,7 +61,10 @@ function parseExportPayload(raw: unknown): ExportChatPayload | null {
 
 	return {
 		chatId: payload.chatId.trim(),
-		userId: typeof payload.userId === "string" ? payload.userId.trim() : undefined,
+		userId:
+			typeof payload.userId === "string" && payload.userId.trim().length > 0
+				? payload.userId.trim()
+				: undefined,
 		authTokenRef: typeof payload.authTokenRef === "string" ? payload.authTokenRef : undefined,
 		format,
 	};
@@ -164,6 +167,11 @@ const workflow = serve<ExportChatPayload>(async (context) => {
 		return getWorkflowAuthToken(authTokenRef);
 	});
 	if (!authToken) {
+		return {
+			error: "Unauthorized",
+		};
+	}
+	if (!userId || userId.trim().length === 0) {
 		return {
 			error: "Unauthorized",
 		};
