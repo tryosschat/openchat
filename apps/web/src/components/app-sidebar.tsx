@@ -450,8 +450,11 @@ export function AppSidebar({
       });
     } catch (error) {
       console.warn("[Chat] Title regeneration failed:", error);
-      const message = error instanceof Error ? error.message : "Failed to regenerate chat name";
-      toast.error(message);
+      if (error instanceof Error && error.name === "RateLimitError") {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to regenerate chat name");
+      }
     } finally {
       setTitleGenerating(chatId, false);
     }

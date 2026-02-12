@@ -77,7 +77,6 @@ async function clearRedisUserKeys(userId: string): Promise<number> {
 	const patternKeys = [
 		`chat:*:typing:${userId}`,
 		`openchat:usage:${userId}:*`,
-		`ratelimit:*:${userId}`,
 	];
 
 	let deleted = 0;

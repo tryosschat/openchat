@@ -16,7 +16,7 @@ const MAX_EXPORT_BYTES = 10 * 1024 * 1024;
 
 type ExportChatPayload = {
 	chatId: string;
-	userId: string;
+	userId?: string;
 	authTokenRef?: string;
 	format?: ExportFormat;
 };
@@ -51,10 +51,6 @@ function parseExportPayload(raw: unknown): ExportChatPayload | null {
 	if (typeof payload.chatId !== "string" || payload.chatId.trim().length === 0) {
 		return null;
 	}
-	if (typeof payload.userId !== "string" || payload.userId.trim().length === 0) {
-		return null;
-	}
-
 	let format: ExportFormat | undefined;
 	if (payload.format !== undefined) {
 		if (payload.format !== "markdown" && payload.format !== "json") {
@@ -65,7 +61,7 @@ function parseExportPayload(raw: unknown): ExportChatPayload | null {
 
 	return {
 		chatId: payload.chatId.trim(),
-		userId: payload.userId.trim(),
+		userId: typeof payload.userId === "string" ? payload.userId.trim() : undefined,
 		authTokenRef: typeof payload.authTokenRef === "string" ? payload.authTokenRef : undefined,
 		format,
 	};

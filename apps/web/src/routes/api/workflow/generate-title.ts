@@ -344,7 +344,14 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 				if (authRatelimit) {
 					const rl = await authRatelimit.limit(`generate-title:${authConvexUser._id}`);
 					if (!rl.success) {
-						return json({ error: "Rate limit exceeded" }, { status: 429 });
+						const retryAfterSeconds = Math.max(
+							1,
+							Math.ceil((rl.reset - Date.now()) / 1000),
+						);
+						return json(
+							{ error: "Rate limit exceeded" },
+							{ status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+						);
 					}
 				}
 
@@ -353,7 +360,7 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 					userId: authConvexUser._id,
 				};
 
-				if (normalizedPayload.provider === "openrouter") {
+				const runInline = async (logLabel: string) => {
 					try {
 						const result = await runGenerateTitleInline(normalizedPayload, authToken);
 						if (!result.saved) {
@@ -365,28 +372,18 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 						const message = error instanceof Error ? error.message : "Failed to generate title";
 						const status = message === "Unauthorized" ? 401 : 500;
 						if (status === 500) {
-							console.error("[Workflow][generate-title] Inline generation failed", error);
+							console.error(`[Workflow][generate-title] ${logLabel} failed`, error);
 						}
 						return json({ error: status === 500 ? "Internal server error" : message }, { status });
 					}
+				};
+
+				if (normalizedPayload.provider === "openrouter") {
+					return runInline("Inline generation");
 				}
 
 				if (isLocalWorkflowExecutionEnabled()) {
-					try {
-						const result = await runGenerateTitleInline(normalizedPayload, authToken);
-						if (!result.saved) {
-							const status = result.reason === "missing_openrouter_key" ? 400 : 422;
-							return json(result, { status });
-						}
-						return json(result, { status: 200 });
-					} catch (error) {
-						const message = error instanceof Error ? error.message : "Failed to generate title";
-						const status = message === "Unauthorized" ? 401 : 500;
-						if (status === 500) {
-							console.error("[Workflow][generate-title] Local execution failed", error);
-						}
-						return json({ error: status === 500 ? "Internal server error" : message }, { status });
-					}
+					return runInline("Local execution");
 				}
 
 				if (!workflowClient) {
