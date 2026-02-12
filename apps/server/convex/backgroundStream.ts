@@ -13,7 +13,6 @@ import {
 import type { UsagePayload } from "./lib/billingUtils";
 import {
 	adjustDailyUsageInUpstash,
-	getDailyUsageFromUpstash,
 	incrementDailyUsageInUpstash,
 	reserveDailyUsageInUpstash,
 } from "./lib/upstashUsage";
@@ -829,31 +828,11 @@ export const executeStream = internalAction({
 					return;
 				}
 			} else {
-				const redisUsageCents = await getDailyUsageFromUpstash(job.userId, currentDate);
-				if (redisUsageCents === null) {
-					await ctx.runMutation(internal.backgroundStream.failStream, {
-						jobId: args.jobId,
-						error: "Usage tracking temporarily unavailable. Please retry shortly.",
-					});
-					return;
-				}
-				const fallbackUsageCents =
-					await ctx.runQuery(
-						internal.backgroundStream.getPersistedDailyUsageForDateInternal,
-						{
-							userId: job.userId,
-							dateKey: currentDate,
-						},
-					);
-				const enforcedUsageCents = Math.max(redisUsageCents, fallbackUsageCents);
-
-				if (enforcedUsageCents >= DAILY_AI_LIMIT_CENTS) {
-					await ctx.runMutation(internal.backgroundStream.failStream, {
-						jobId: args.jobId,
-						error: "Daily usage limit reached. Connect your OpenRouter account to continue.",
-					});
-					return;
-				}
+				await ctx.runMutation(internal.backgroundStream.failStream, {
+					jobId: args.jobId,
+					error: "Usage tracking temporarily unavailable. Please retry shortly.",
+				});
+				return;
 			}
 		}
 
@@ -1482,10 +1461,18 @@ export const executeStream = internalAction({
 					console.warn("[Usage] Upstash refund adjustment failed", adjustError);
 				}
 			}
-			const errorMessage = error instanceof Error ? error.message : "Unknown error";
+			const rawErrorMessage = error instanceof Error ? error.message : "Unknown error";
+			const lowerErrorMessage = rawErrorMessage.toLowerCase();
+			const safeErrorMessage =
+				lowerErrorMessage.includes("limit reached") ||
+				lowerErrorMessage.includes("rate limit") ||
+				lowerErrorMessage.includes("unauthorized") ||
+				lowerErrorMessage.includes("not found")
+					? rawErrorMessage
+					: "An error occurred while processing your request.";
 			await ctx.runMutation(internal.backgroundStream.failStream, {
 				jobId: args.jobId,
-				error: errorMessage,
+				error: safeErrorMessage,
 				partialContent: fullContent,
 			});
 		}
