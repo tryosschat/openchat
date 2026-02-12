@@ -93,6 +93,7 @@ function sanitizeGeneratedTitle(input: string): string {
 	}
 
 	title = title.replace(/\s+/g, " ").replace(/[.?!]+$/, "").trim();
+	title = title.replace(/<[^>]*>/g, "").trim();
 	if (!title) return "";
 	return title.slice(0, TITLE_MAX_LENGTH);
 }
@@ -242,51 +243,49 @@ const workflow = serve<GenerateTitlePayload>(async (context) => {
 		TITLE_STYLE_PROMPTS[length],
 	].join(" ");
 
-	const llmResponse = await context.run("call-llm", async () => {
-		let response: Response;
-		try {
-			response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${openRouterKey}`,
-					"HTTP-Referer": process.env.VITE_CONVEX_SITE_URL || "https://osschat.io",
-					"X-Title": "OSSChat",
-				},
-				body: JSON.stringify({
-					model: TITLE_MODEL_ID,
-					messages: [
-						{ role: "system", content: systemPrompt },
-						{ role: "user", content: normalizedSeed },
-					],
-					temperature: 0.2,
-					max_tokens: 32,
-				}),
-				signal: AbortSignal.timeout(OPENROUTER_CALL_TIMEOUT_MS),
-			});
-		} catch {
-			return { status: 0, body: null };
-		}
-
-		let body: { choices?: Array<{ message?: { content?: string } }> } | null = null;
+	let llmResponseStatus = 0;
+	let llmResponseBody: { choices?: Array<{ message?: { content?: string } }> } | null = null;
+	try {
+		const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${openRouterKey}`,
+				"HTTP-Referer": process.env.VITE_CONVEX_SITE_URL || "https://osschat.io",
+				"X-Title": "OSSChat",
+			},
+			body: JSON.stringify({
+				model: TITLE_MODEL_ID,
+				messages: [
+					{ role: "system", content: systemPrompt },
+					{ role: "user", content: normalizedSeed },
+				],
+				temperature: 0.2,
+				max_tokens: 32,
+			}),
+			signal: AbortSignal.timeout(OPENROUTER_CALL_TIMEOUT_MS),
+		});
+		llmResponseStatus = response.status;
 		if (response.ok) {
 			try {
-				body = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+				llmResponseBody = (await response.json()) as {
+					choices?: Array<{ message?: { content?: string } }>;
+				};
 			} catch {
-				body = null;
+				llmResponseBody = null;
 			}
 		}
-
-		return { status: response.status, body };
-	});
-	if (llmResponse.status < 200 || llmResponse.status >= 300) {
+	} catch {
+		llmResponseStatus = 0;
+	}
+	if (llmResponseStatus < 200 || llmResponseStatus >= 300) {
 		return {
 			saved: false,
-			reason: `llm_status_${llmResponse.status}`,
+			reason: `llm_status_${llmResponseStatus}`,
 		} as const;
 	}
 
-	const rawTitle = llmResponse.body?.choices?.[0]?.message?.content ?? "";
+	const rawTitle = llmResponseBody?.choices?.[0]?.message?.content ?? "";
 	const sanitizedTitle = sanitizeGeneratedTitle(rawTitle);
 	if (!sanitizedTitle) {
 		return { saved: false, reason: "empty_title" } as const;

@@ -1453,6 +1453,10 @@ export const executeStream = internalAction({
 					: undefined,
 			});
 		} catch (error) {
+			console.error("[BackgroundStream] executeStream failed", {
+				jobId: args.jobId,
+				error,
+			});
 			if (reservedDateKey && reservedUsageCents > 0) {
 				try {
 					await adjustDailyUsageInUpstash(job.userId, reservedDateKey, -reservedUsageCents);

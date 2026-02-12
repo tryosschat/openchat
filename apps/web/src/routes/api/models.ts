@@ -8,14 +8,13 @@ const MODELS_CACHE_TTL_SECONDS = 60 * 60 * 4;
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_FETCH_TIMEOUT_MS = 10_000;
 const TRUST_PROXY_MODE = process.env.TRUST_PROXY?.trim().toLowerCase();
-const UNKNOWN_CLIENT_IP = "unknown";
 
 if (TRUST_PROXY_MODE === "true") {
-	console.warn("[Models API] TRUST_PROXY=true uses shared rate-limit bucket");
+	console.warn("[Models API] TRUST_PROXY=true requires x-forwarded-for for rate limiting");
 }
 
 if (!TRUST_PROXY_MODE) {
-	console.warn("[Models API] TRUST_PROXY is unset; models endpoint may use shared rate-limit behavior");
+	console.warn("[Models API] TRUST_PROXY is unset; models endpoint will reject requests when IP is unavailable");
 }
 
 if (
@@ -24,7 +23,7 @@ if (
 	TRUST_PROXY_MODE !== "vercel" &&
 	TRUST_PROXY_MODE !== "true"
 ) {
-	console.warn("[Models API] Unrecognized TRUST_PROXY value, using shared rate-limit bucket");
+	console.warn("[Models API] Unrecognized TRUST_PROXY value; models endpoint will reject requests when IP is unavailable");
 }
 
 const modelsIpRatelimit = upstashRedis
@@ -96,10 +95,15 @@ function getClientIp(request: Request): string | null {
 	}
 
 	if (TRUST_PROXY_MODE === "true") {
+		const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
+		if (forwardedFor) {
+			const first = forwardedFor.split(",")[0]?.trim();
+			if (first) return first;
+		}
 		return null;
 	}
 
-	return UNKNOWN_CLIENT_IP;
+	return null;
 }
 
 export const Route = createFileRoute("/api/models")({
@@ -113,9 +117,12 @@ export const Route = createFileRoute("/api/models")({
 				if (modelsIpRatelimit) {
 					const ip = getClientIp(request);
 					if (!ip) {
-						console.warn("[Models API] Trusted proxy IP unavailable, using shared rate-limit bucket");
+						return json(
+							{ error: "Unable to determine client IP for rate limiting" },
+							{ status: 400 },
+						);
 					}
-					const rl = await modelsIpRatelimit.limit(ip ?? UNKNOWN_CLIENT_IP);
+					const rl = await modelsIpRatelimit.limit(ip);
 					if (!rl.success) {
 						const retryAfterSeconds = Math.max(
 							1,

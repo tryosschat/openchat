@@ -879,7 +879,7 @@ export function usePersistentChat({
 				setError(parsedError);
 				setStatus("error");
 				toast.error("Failed to edit message", {
-					description: parsedError.message,
+					description: getUserFriendlyError(parsedError.message),
 				});
 			}
 		},
@@ -1029,7 +1029,7 @@ export function usePersistentChat({
 				setError(parsedError);
 				setStatus("error");
 				toast.error("Failed to retry message", {
-					description: parsedError.message,
+					description: getUserFriendlyError(parsedError.message),
 				});
 			}
 		},
