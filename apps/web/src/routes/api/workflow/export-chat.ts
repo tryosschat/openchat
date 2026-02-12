@@ -13,6 +13,8 @@ import {
 import { getWorkflowAuthToken, storeWorkflowAuthToken } from "@/lib/workflow-auth-token";
 
 type ExportFormat = "markdown" | "json";
+const MAX_EXPORT_BYTES = 10 * 1024 * 1024;
+
 type ExportChatPayload = {
 	chatId: string;
 	userId: string;
@@ -146,12 +148,16 @@ async function runExportChatInline(
 		format === "json"
 			? JSON.stringify(chatExportData, null, 2)
 			: formatExportMarkdown(chatExportData);
+	const byteLength = Buffer.byteLength(formattedExport, "utf8");
+	if (byteLength > MAX_EXPORT_BYTES) {
+		throw new Error("Export too large");
+	}
 	const mimeType = format === "json" ? "application/json" : "text/markdown";
 	const base64 = Buffer.from(formattedExport, "utf8").toString("base64");
 
 	return {
 		downloadUrl: `data:${mimeType};base64,${base64}`,
-		byteLength: Buffer.byteLength(formattedExport, "utf8"),
+		byteLength,
 		fileName: `chat-export-${chatId}.${format === "json" ? "json" : "md"}`,
 	};
 }
@@ -166,9 +172,7 @@ const workflow = serve<ExportChatPayload>(async (context) => {
 		};
 	}
 
-	const authToken = await context.run("resolve-auth", async () => {
-		return getWorkflowAuthToken(authTokenRef);
-	});
+	const authToken = await getWorkflowAuthToken(authTokenRef);
 	if (!authToken) {
 		return {
 			error: "Unauthorized",
@@ -196,11 +200,15 @@ const workflow = serve<ExportChatPayload>(async (context) => {
 	});
 
 	const uploadResult = await context.run("upload", async () => {
+		const byteLength = Buffer.byteLength(formattedExport, "utf8");
+		if (byteLength > MAX_EXPORT_BYTES) {
+			throw new Error("Export too large");
+		}
 		const mimeType = format === "json" ? "application/json" : "text/markdown";
 		const base64 = Buffer.from(formattedExport, "utf8").toString("base64");
 		return {
 			downloadUrl: `data:${mimeType};base64,${base64}`,
-			byteLength: Buffer.byteLength(formattedExport, "utf8"),
+			byteLength,
 			fileName: `chat-export-${chatId}.${format === "json" ? "json" : "md"}`,
 		};
 	});
@@ -272,7 +280,13 @@ export const Route = createFileRoute("/api/workflow/export-chat")({
 					} catch (error) {
 						const message = error instanceof Error ? error.message : "Failed to export chat";
 						const status =
-							message === "Unauthorized" ? 401 : message === "Chat not found" ? 404 : 500;
+							message === "Unauthorized"
+								? 401
+								: message === "Chat not found"
+									? 404
+									: message === "Export too large"
+										? 413
+										: 500;
 						return json({ error: message }, { status });
 					}
 				}

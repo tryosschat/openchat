@@ -4,7 +4,6 @@ import { serve } from "@upstash/workflow/tanstack";
 import { api } from "@server/convex/_generated/api";
 import type { Id } from "@server/convex/_generated/dataModel";
 import { createConvexServerClient } from "@/lib/convex-server";
-import { decryptSecret } from "@/lib/server-crypto";
 import { getAuthUser, getConvexAuthToken, isSameOrigin } from "@/lib/server-auth";
 import {
 	authRatelimit,
@@ -186,9 +185,7 @@ const workflow = serve<GenerateTitlePayload>(async (context) => {
 		return { saved: false, reason: "unauthorized" } as const;
 	}
 
-	const authToken = await context.run("resolve-auth", async () => {
-		return getWorkflowAuthToken(authTokenRef);
-	});
+	const authToken = await getWorkflowAuthToken(authTokenRef);
 	if (!authToken) {
 		return { saved: false, reason: "unauthorized" } as const;
 	}
@@ -210,16 +207,11 @@ const workflow = serve<GenerateTitlePayload>(async (context) => {
 		return { saved: false, reason: "empty_seed" } as const;
 	}
 
-	const openRouterKey = await context.run("resolve-openrouter-key", async () => {
-		if (provider === "osschat") {
-			return process.env.OPENROUTER_API_KEY ?? null;
-		}
+	if (provider !== "osschat") {
+		return { saved: false, reason: "missing_openrouter_key" } as const;
+	}
 
-		const encryptedKey = await convexClient.query(api.users.getOpenRouterKey, {
-			userId: convexUserId,
-		});
-		return encryptedKey ? decryptSecret(encryptedKey) : null;
-	});
+	const openRouterKey = process.env.OPENROUTER_API_KEY ?? null;
 	if (!openRouterKey) {
 		return { saved: false, reason: "missing_openrouter_key" } as const;
 	}
@@ -337,6 +329,21 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 					...payload,
 					userId: authConvexUser._id,
 				};
+
+				if (normalizedPayload.provider === "openrouter") {
+					try {
+						const result = await runGenerateTitleInline(normalizedPayload, authToken);
+						if (!result.saved) {
+							const status = result.reason === "missing_openrouter_key" ? 400 : 409;
+							return json(result, { status });
+						}
+						return json(result, { status: 200 });
+					} catch (error) {
+						const message = error instanceof Error ? error.message : "Failed to generate title";
+						const status = message === "Unauthorized" ? 401 : 500;
+						return json({ error: message }, { status });
+					}
+				}
 
 				if (isLocalWorkflowRequest(request)) {
 					try {

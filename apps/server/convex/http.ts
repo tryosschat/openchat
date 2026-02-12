@@ -97,8 +97,14 @@ http.route({
     try {
       result = await ctx.runAction(internal.cleanupAction.runCleanupBatchForWorkflow, {
         workflowToken: payload.workflowToken.trim(),
-        retentionDays: typeof payload.retentionDays === "number" ? payload.retentionDays : undefined,
-        batchSize: typeof payload.batchSize === "number" ? payload.batchSize : undefined,
+        retentionDays:
+          typeof payload.retentionDays === "number" && Number.isFinite(payload.retentionDays)
+            ? payload.retentionDays
+            : undefined,
+        batchSize:
+          typeof payload.batchSize === "number" && Number.isFinite(payload.batchSize)
+            ? payload.batchSize
+            : undefined,
         dryRun: typeof payload.dryRun === "boolean" ? payload.dryRun : undefined,
       });
     } catch (error) {

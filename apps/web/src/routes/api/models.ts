@@ -60,25 +60,27 @@ async function fetchModelsFromOpenRouter(): Promise<Response> {
 }
 
 function getClientIp(request: Request): string | null {
-	if (TRUST_PROXY) {
-		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		if (cfConnectingIp) return cfConnectingIp;
-
-		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelForwardedFor) {
-			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-		}
-
-		const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
-		if (forwardedFor) {
-			const first = forwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-		}
-
-		const realIp = request.headers.get("x-real-ip")?.trim();
-		if (realIp) return realIp;
+	if (!TRUST_PROXY) {
+		return "untrusted-proxy";
 	}
+
+	const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
+	if (cfConnectingIp) return cfConnectingIp;
+
+	const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
+	if (vercelForwardedFor) {
+		const first = vercelForwardedFor.split(",")[0]?.trim();
+		if (first) return first;
+	}
+
+	const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
+	if (forwardedFor) {
+		const first = forwardedFor.split(",")[0]?.trim();
+		if (first) return first;
+	}
+
+	const realIp = request.headers.get("x-real-ip")?.trim();
+	if (realIp) return realIp;
 
 	return null;
 }

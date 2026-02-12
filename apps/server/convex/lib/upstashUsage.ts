@@ -4,6 +4,7 @@ type PipelineEntry = {
 };
 
 type PipelineResult = Array<PipelineEntry>;
+const UPSTASH_PIPELINE_TIMEOUT_MS = 10_000;
 
 function getConfig(): { url: string; token: string } | null {
 	const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
@@ -40,6 +41,7 @@ async function executePipeline(commands: Array<Array<string | number>>): Promise
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify(commands),
+		signal: AbortSignal.timeout(UPSTASH_PIPELINE_TIMEOUT_MS),
 	});
 
 	if (!response.ok) {

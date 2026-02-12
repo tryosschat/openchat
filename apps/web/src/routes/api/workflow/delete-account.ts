@@ -81,8 +81,8 @@ async function clearRedisUserKeys(userId: string): Promise<number> {
 	];
 
 	let deleted = 0;
-	for (const key of directKeys) {
-		deleted += await upstashRedis.del(key);
+	if (directKeys.length > 0) {
+		deleted += await upstashRedis.del(...directKeys);
 	}
 
 	for (const pattern of patternKeys) {
@@ -184,9 +184,7 @@ const workflow = serve<DeleteAccountPayload>(async (context) => {
 		return EMPTY_DELETE_RESULT;
 	}
 
-	const authToken = await context.run("resolve-auth", async () => {
-		return getWorkflowAuthToken(authTokenRef);
-	});
+	const authToken = await getWorkflowAuthToken(authTokenRef);
 	if (!authToken) {
 		return EMPTY_DELETE_RESULT;
 	}
@@ -283,7 +281,14 @@ export const Route = createFileRoute("/api/workflow/delete-account")({
 				if (authRatelimit) {
 					const rl = await authRatelimit.limit(`delete-account:${authConvexUser._id}`);
 					if (!rl.success) {
-						return json({ error: "Rate limit exceeded" }, { status: 429 });
+						const retryAfterSeconds = Math.max(
+							1,
+							Math.ceil((rl.reset - Date.now()) / 1000),
+						);
+						return json(
+							{ error: "Rate limit exceeded" },
+							{ status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+						);
 					}
 				}
 
