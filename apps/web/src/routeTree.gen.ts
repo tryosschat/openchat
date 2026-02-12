@@ -20,7 +20,11 @@ import { Route as AuthSignInRouteImport } from './routes/auth/sign-in'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as ApiTypingRouteImport } from './routes/api/typing'
 import { Route as ApiOpenrouterKeyRouteImport } from './routes/api/openrouter-key'
-import { Route as ApiChatRouteImport } from './routes/api/chat'
+import { Route as ApiModelsRouteImport } from './routes/api/models'
+import { Route as ApiWorkflowGenerateTitleRouteImport } from './routes/api/workflow/generate-title'
+import { Route as ApiWorkflowExportChatRouteImport } from './routes/api/workflow/export-chat'
+import { Route as ApiWorkflowDeleteAccountRouteImport } from './routes/api/workflow/delete-account'
+import { Route as ApiWorkflowCleanupRouteImport } from './routes/api/workflow/cleanup'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -77,9 +81,31 @@ const ApiOpenrouterKeyRoute = ApiOpenrouterKeyRouteImport.update({
   path: '/api/openrouter-key',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiChatRoute = ApiChatRouteImport.update({
-  id: '/api/chat',
-  path: '/api/chat',
+const ApiModelsRoute = ApiModelsRouteImport.update({
+  id: '/api/models',
+  path: '/api/models',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWorkflowGenerateTitleRoute =
+  ApiWorkflowGenerateTitleRouteImport.update({
+    id: '/api/workflow/generate-title',
+    path: '/api/workflow/generate-title',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiWorkflowExportChatRoute = ApiWorkflowExportChatRouteImport.update({
+  id: '/api/workflow/export-chat',
+  path: '/api/workflow/export-chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWorkflowDeleteAccountRoute =
+  ApiWorkflowDeleteAccountRouteImport.update({
+    id: '/api/workflow/delete-account',
+    path: '/api/workflow/delete-account',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiWorkflowCleanupRoute = ApiWorkflowCleanupRouteImport.update({
+  id: '/api/workflow/cleanup',
+  path: '/api/workflow/cleanup',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -89,13 +115,17 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/settings': typeof SettingsRoute
   '/terms': typeof TermsRoute
-  '/api/chat': typeof ApiChatRoute
+  '/api/models': typeof ApiModelsRoute
   '/api/openrouter-key': typeof ApiOpenrouterKeyRoute
   '/api/typing': typeof ApiTypingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/c/$chatId': typeof CChatIdRoute
   '/openrouter/callback': typeof OpenrouterCallbackRoute
+  '/api/workflow/cleanup': typeof ApiWorkflowCleanupRoute
+  '/api/workflow/delete-account': typeof ApiWorkflowDeleteAccountRoute
+  '/api/workflow/export-chat': typeof ApiWorkflowExportChatRoute
+  '/api/workflow/generate-title': typeof ApiWorkflowGenerateTitleRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -103,13 +133,17 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/settings': typeof SettingsRoute
   '/terms': typeof TermsRoute
-  '/api/chat': typeof ApiChatRoute
+  '/api/models': typeof ApiModelsRoute
   '/api/openrouter-key': typeof ApiOpenrouterKeyRoute
   '/api/typing': typeof ApiTypingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/c/$chatId': typeof CChatIdRoute
   '/openrouter/callback': typeof OpenrouterCallbackRoute
+  '/api/workflow/cleanup': typeof ApiWorkflowCleanupRoute
+  '/api/workflow/delete-account': typeof ApiWorkflowDeleteAccountRoute
+  '/api/workflow/export-chat': typeof ApiWorkflowExportChatRoute
+  '/api/workflow/generate-title': typeof ApiWorkflowGenerateTitleRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -118,13 +152,17 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/settings': typeof SettingsRoute
   '/terms': typeof TermsRoute
-  '/api/chat': typeof ApiChatRoute
+  '/api/models': typeof ApiModelsRoute
   '/api/openrouter-key': typeof ApiOpenrouterKeyRoute
   '/api/typing': typeof ApiTypingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/c/$chatId': typeof CChatIdRoute
   '/openrouter/callback': typeof OpenrouterCallbackRoute
+  '/api/workflow/cleanup': typeof ApiWorkflowCleanupRoute
+  '/api/workflow/delete-account': typeof ApiWorkflowDeleteAccountRoute
+  '/api/workflow/export-chat': typeof ApiWorkflowExportChatRoute
+  '/api/workflow/generate-title': typeof ApiWorkflowGenerateTitleRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -134,13 +172,17 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/settings'
     | '/terms'
-    | '/api/chat'
+    | '/api/models'
     | '/api/openrouter-key'
     | '/api/typing'
     | '/auth/callback'
     | '/auth/sign-in'
     | '/c/$chatId'
     | '/openrouter/callback'
+    | '/api/workflow/cleanup'
+    | '/api/workflow/delete-account'
+    | '/api/workflow/export-chat'
+    | '/api/workflow/generate-title'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -148,13 +190,17 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/settings'
     | '/terms'
-    | '/api/chat'
+    | '/api/models'
     | '/api/openrouter-key'
     | '/api/typing'
     | '/auth/callback'
     | '/auth/sign-in'
     | '/c/$chatId'
     | '/openrouter/callback'
+    | '/api/workflow/cleanup'
+    | '/api/workflow/delete-account'
+    | '/api/workflow/export-chat'
+    | '/api/workflow/generate-title'
   id:
     | '__root__'
     | '/'
@@ -162,13 +208,17 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/settings'
     | '/terms'
-    | '/api/chat'
+    | '/api/models'
     | '/api/openrouter-key'
     | '/api/typing'
     | '/auth/callback'
     | '/auth/sign-in'
     | '/c/$chatId'
     | '/openrouter/callback'
+    | '/api/workflow/cleanup'
+    | '/api/workflow/delete-account'
+    | '/api/workflow/export-chat'
+    | '/api/workflow/generate-title'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -177,13 +227,17 @@ export interface RootRouteChildren {
   PrivacyRoute: typeof PrivacyRoute
   SettingsRoute: typeof SettingsRoute
   TermsRoute: typeof TermsRoute
-  ApiChatRoute: typeof ApiChatRoute
+  ApiModelsRoute: typeof ApiModelsRoute
   ApiOpenrouterKeyRoute: typeof ApiOpenrouterKeyRoute
   ApiTypingRoute: typeof ApiTypingRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthSignInRoute: typeof AuthSignInRoute
   CChatIdRoute: typeof CChatIdRoute
   OpenrouterCallbackRoute: typeof OpenrouterCallbackRoute
+  ApiWorkflowCleanupRoute: typeof ApiWorkflowCleanupRoute
+  ApiWorkflowDeleteAccountRoute: typeof ApiWorkflowDeleteAccountRoute
+  ApiWorkflowExportChatRoute: typeof ApiWorkflowExportChatRoute
+  ApiWorkflowGenerateTitleRoute: typeof ApiWorkflowGenerateTitleRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -265,11 +319,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOpenrouterKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/chat': {
-      id: '/api/chat'
-      path: '/api/chat'
-      fullPath: '/api/chat'
-      preLoaderRoute: typeof ApiChatRouteImport
+    '/api/models': {
+      id: '/api/models'
+      path: '/api/models'
+      fullPath: '/api/models'
+      preLoaderRoute: typeof ApiModelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workflow/generate-title': {
+      id: '/api/workflow/generate-title'
+      path: '/api/workflow/generate-title'
+      fullPath: '/api/workflow/generate-title'
+      preLoaderRoute: typeof ApiWorkflowGenerateTitleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workflow/export-chat': {
+      id: '/api/workflow/export-chat'
+      path: '/api/workflow/export-chat'
+      fullPath: '/api/workflow/export-chat'
+      preLoaderRoute: typeof ApiWorkflowExportChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workflow/delete-account': {
+      id: '/api/workflow/delete-account'
+      path: '/api/workflow/delete-account'
+      fullPath: '/api/workflow/delete-account'
+      preLoaderRoute: typeof ApiWorkflowDeleteAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workflow/cleanup': {
+      id: '/api/workflow/cleanup'
+      path: '/api/workflow/cleanup'
+      fullPath: '/api/workflow/cleanup'
+      preLoaderRoute: typeof ApiWorkflowCleanupRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -281,13 +363,17 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyRoute: PrivacyRoute,
   SettingsRoute: SettingsRoute,
   TermsRoute: TermsRoute,
-  ApiChatRoute: ApiChatRoute,
+  ApiModelsRoute: ApiModelsRoute,
   ApiOpenrouterKeyRoute: ApiOpenrouterKeyRoute,
   ApiTypingRoute: ApiTypingRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthSignInRoute: AuthSignInRoute,
   CChatIdRoute: CChatIdRoute,
   OpenrouterCallbackRoute: OpenrouterCallbackRoute,
+  ApiWorkflowCleanupRoute: ApiWorkflowCleanupRoute,
+  ApiWorkflowDeleteAccountRoute: ApiWorkflowDeleteAccountRoute,
+  ApiWorkflowExportChatRoute: ApiWorkflowExportChatRoute,
+  ApiWorkflowGenerateTitleRoute: ApiWorkflowGenerateTitleRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

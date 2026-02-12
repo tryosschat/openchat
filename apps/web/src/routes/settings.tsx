@@ -614,10 +614,6 @@ function ChatSection() {
   const setLength = useChatTitleStore((s) => s.setLength);
   const confirmDelete = useChatTitleStore((s) => s.confirmDelete);
   const setConfirmDelete = useChatTitleStore((s) => s.setConfirmDelete);
-  const jonMode = useUIStore((s) => s.jonMode);
-  const setJonMode = useUIStore((s) => s.setJonMode);
-  const dynamicPrompt = useUIStore((s) => s.dynamicPrompt);
-  const setDynamicPrompt = useUIStore((s) => s.setDynamicPrompt);
   const currentIndex = TITLE_LENGTH_OPTIONS.indexOf(length);
   const percentage = (currentIndex / (TITLE_LENGTH_OPTIONS.length - 1)) * 100;
 
@@ -746,43 +742,7 @@ function ChatSection() {
           </div>
         </div>
 
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-          AI Writing Style
-        </h2>
-        <div className="rounded-xl border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium">Jon Mode</p>
-              <p className="text-sm text-muted-foreground">
-                Makes AI responses sound more natural and human-like
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Warning: This uses significantly more tokens.
-              </p>
-            </div>
-            <Switch
-              id="jon-mode"
-              checked={jonMode}
-              onCheckedChange={setJonMode}
-            />
-          </div>
-        </div>
 
-        <div className="rounded-xl border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium">Dynamic prompt</p>
-              <p className="text-sm text-muted-foreground">
-                Adds a system prompt with model identity for each response.
-              </p>
-            </div>
-            <Switch
-              id="dynamic-prompt"
-              checked={dynamicPrompt}
-              onCheckedChange={setDynamicPrompt}
-            />
-          </div>
-        </div>
       </section>
     </div>
   );

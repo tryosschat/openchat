@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@server/convex/_generated/api";
 import { AlertTriangleIcon } from "lucide-react";
 import type { Id } from "@server/convex/_generated/dataModel";
 import { signOut } from "@/lib/auth-client";
@@ -34,8 +32,6 @@ export function DeleteAccountModal({
 	const [isDeleting, setIsDeleting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
-	const deleteAccount = useMutation(api.users.deleteAccount);
-
 	const isConfirmValid = confirmText === "DELETE";
 
 	const handleDelete = async () => {
@@ -45,10 +41,20 @@ export function DeleteAccountModal({
 		setError(null);
 
 		try {
-			await deleteAccount({
-				userId,
-				externalId,
+			const response = await fetch("/api/workflow/delete-account", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					userId,
+					externalId,
+				}),
 			});
+			if (!response.ok) {
+				const payload = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(payload.error || "Failed to delete account");
+			}
 
 			// Account deleted successfully - sign out and redirect
 			// Even if signOut fails, redirect to sign-in since the account is gone

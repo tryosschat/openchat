@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as backgroundStream from "../backgroundStream.js";
 import type * as chats from "../chats.js";
+import type * as cleanupAction from "../cleanupAction.js";
 import type * as config_constants from "../config/constants.js";
 import type * as crons from "../crons.js";
 import type * as env from "../env.js";
@@ -26,15 +27,14 @@ import type * as lib_origins from "../lib/origins.js";
 import type * as lib_profiles from "../lib/profiles.js";
 import type * as lib_rateLimitUtils from "../lib/rateLimitUtils.js";
 import type * as lib_rateLimiter from "../lib/rateLimiter.js";
-import type * as lib_redisRest from "../lib/redisRest.js";
 import type * as lib_sanitize from "../lib/sanitize.js";
+import type * as lib_upstashUsage from "../lib/upstashUsage.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
 import type * as previewSeed from "../previewSeed.js";
 import type * as promptTemplates from "../promptTemplates.js";
 import type * as search from "../search.js";
 import type * as stats from "../stats.js";
-import type * as streaming from "../streaming.js";
 import type * as users from "../users.js";
 
 import type {
@@ -47,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   backgroundStream: typeof backgroundStream;
   chats: typeof chats;
+  cleanupAction: typeof cleanupAction;
   "config/constants": typeof config_constants;
   crons: typeof crons;
   env: typeof env;
@@ -62,15 +63,14 @@ declare const fullApi: ApiFromModules<{
   "lib/profiles": typeof lib_profiles;
   "lib/rateLimitUtils": typeof lib_rateLimitUtils;
   "lib/rateLimiter": typeof lib_rateLimiter;
-  "lib/redisRest": typeof lib_redisRest;
   "lib/sanitize": typeof lib_sanitize;
+  "lib/upstashUsage": typeof lib_upstashUsage;
   messages: typeof messages;
   migrations: typeof migrations;
   previewSeed: typeof previewSeed;
   promptTemplates: typeof promptTemplates;
   search: typeof search;
   stats: typeof stats;
-  streaming: typeof streaming;
   users: typeof users;
 }>;
 
@@ -2210,41 +2210,6 @@ export declare const components: {
     };
     time: {
       getServerTime: FunctionReference<"mutation", "internal", {}, number>;
-    };
-  };
-  persistentTextStreaming: {
-    lib: {
-      addChunk: FunctionReference<
-        "mutation",
-        "internal",
-        { final: boolean; streamId: string; text: string },
-        any
-      >;
-      createStream: FunctionReference<"mutation", "internal", {}, any>;
-      getStreamStatus: FunctionReference<
-        "query",
-        "internal",
-        { streamId: string },
-        "pending" | "streaming" | "done" | "error" | "timeout"
-      >;
-      getStreamText: FunctionReference<
-        "query",
-        "internal",
-        { streamId: string },
-        {
-          status: "pending" | "streaming" | "done" | "error" | "timeout";
-          text: string;
-        }
-      >;
-      setStreamStatus: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          status: "pending" | "streaming" | "done" | "error" | "timeout";
-          streamId: string;
-        },
-        any
-      >;
     };
   };
 };

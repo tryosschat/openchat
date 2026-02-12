@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "convex dev",
-    "build": "if [ \"$DEPLOYMENT\" = \"preview\" ]; then convex deploy --yes --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'cd ../web && bunx vite build' --preview-run previewSeed --preview-create \"$VERCEL_GIT_COMMIT_REF\"; else convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'cd ../web && bunx vite build'; fi",
+    "build": "if [ \"$DEPLOYMENT\" = \"preview\" ]; then convex deploy --yes --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'cd ../web && bunx vite build' --preview-run previewSeed --preview-create \"$VERCEL_GIT_COMMIT_REF\"; else convex deploy --yes --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'cd ../web && bunx vite build'; fi",
     "deploy": "bunx --bun convex deploy",
     "deploy:prod": "./scripts/deploy-prod.sh",
     "lint": "oxlint",
@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.10.10",
-    "@convex-dev/persistent-text-streaming": "^0.3.0",
     "@convex-dev/rate-limiter": "^0.3.2",
     "better-auth": "1.4.18",
     "@openrouter/ai-sdk-provider": "2.1.1",

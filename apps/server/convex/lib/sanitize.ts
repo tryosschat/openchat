@@ -41,6 +41,8 @@ export function sanitizeTitle(
 	// Collapse multiple spaces into one
 	sanitized = sanitized.replace(/\s+/g, " ");
 
+	sanitized = sanitized.replace(/<[^>]*>/g, "").trim();
+
 	// Truncate to maximum length
 	if (sanitized.length > maxLength) {
 		sanitized = sanitized.slice(0, maxLength);

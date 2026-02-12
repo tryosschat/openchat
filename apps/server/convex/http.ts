@@ -1,8 +1,7 @@
 import "./polyfills";
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { streamLLM } from "./streaming";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { authComponent, createAuth } from "./auth";
 import { getAllowedOrigins, getCorsOrigin } from "./lib/origins";
 
@@ -36,20 +35,6 @@ http.route({
   }),
 });
 
-// LLM streaming endpoint - runs on Convex infrastructure for persistence
-http.route({
-  path: "/stream-llm",
-  method: "POST",
-  handler: streamLLM,
-});
-
-// Handle CORS preflight for streaming endpoint
-http.route({
-  path: "/stream-llm",
-  method: "OPTIONS",
-  handler: streamLLM,
-});
-
 // Public stats endpoint for sign-in page
 // SECURITY: This endpoint exposes only aggregate, non-sensitive stats (counts, stars).
 // If sensitive data is ever added, ensure CORS remains restricted to getAllowedOrigins().
@@ -76,6 +61,92 @@ http.route({
     return new Response(JSON.stringify(stats), {
       status: 200,
       headers,
+    });
+  }),
+});
+
+http.route({
+  path: "/workflow/cleanup-batch",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON payload" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return new Response(JSON.stringify({ error: "Invalid JSON payload" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const payload = body as {
+      workflowToken?: unknown;
+      retentionDays?: unknown;
+      batchSize?: unknown;
+      dryRun?: unknown;
+    };
+
+    const authorization = request.headers.get("authorization")?.trim();
+    const bearerToken = authorization?.startsWith("Bearer ")
+      ? authorization.slice("Bearer ".length).trim()
+      : null;
+    const bodyWorkflowToken =
+      typeof payload.workflowToken === "string" ? payload.workflowToken.trim() : null;
+    const workflowToken = bearerToken || bodyWorkflowToken;
+
+    if (!workflowToken) {
+      return new Response(JSON.stringify({ error: "workflowToken is required" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    let result;
+    try {
+      result = await ctx.runAction(internal.cleanupAction.runCleanupBatchForWorkflow, {
+        workflowToken,
+        retentionDays:
+          typeof payload.retentionDays === "number" && Number.isFinite(payload.retentionDays)
+            ? payload.retentionDays
+            : undefined,
+        batchSize:
+          typeof payload.batchSize === "number" && Number.isFinite(payload.batchSize)
+            ? payload.batchSize
+            : undefined,
+        dryRun: typeof payload.dryRun === "boolean" ? payload.dryRun : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cleanup batch failed";
+      const KNOWN_VALIDATION_ERRORS = [
+        "retentionDays must be between 1 and 3650",
+        "batchSize must be between 1 and 1000",
+      ];
+      const status =
+        message === "Unauthorized"
+          ? 401
+          : KNOWN_VALIDATION_ERRORS.includes(message)
+            ? 400
+            : 500;
+      if (status === 500) {
+        console.error("[cleanup-batch] Internal error", error);
+      }
+      const safeMessage = status === 500 ? "Cleanup batch failed" : message;
+      return new Response(JSON.stringify({ error: safeMessage }), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify(result), {
+      status: 200,
+      headers: { "content-type": "application/json" },
     });
   }),
 });

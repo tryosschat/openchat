@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@server/convex/_generated/api";
 import { toast } from "sonner";
 import type { Id } from "@server/convex/_generated/dataModel";
@@ -7,10 +7,9 @@ import type { UIMessage } from "ai";
 import { useAuth } from "@/lib/auth-client";
 import { getModelById, getModelCapabilities, useModelStore, useModels } from "@/stores/model";
 import { useProviderStore } from "@/stores/provider";
-import { useChatTitleStore } from "@/stores/chat-title";
 import { useStreamStore } from "@/stores/stream";
-import { useUIStore } from "@/stores/ui";
 import { analytics } from "@/lib/analytics";
+import { shouldTriggerAutoTitle } from "@/lib/title-generation";
 
 interface ChatFileAttachment {
 	type: "file";
@@ -97,8 +96,6 @@ function hasStreamingState(part: unknown): boolean {
 function getReasoningText(part: unknown): string | undefined {
 	return isReasoningPart(part) ? part.text : undefined;
 }
-
-const TITLE_GENERATION_RETRY_DELAY_MS = 1500;
 
 /**
  * Maps internal error messages to user-friendly descriptions.
@@ -300,10 +297,6 @@ export function usePersistentChat({
 	const { models } = useModels();
 	const activeProvider = useProviderStore((s) => s.activeProvider);
 	const webSearchEnabled = useProviderStore((s) => s.webSearchEnabled);
-	const jonMode = useUIStore((s) => s.jonMode);
-	const dynamicPrompt = useUIStore((s) => s.dynamicPrompt);
-	const chatTitleLength = useChatTitleStore((s) => s.length);
-	const setTitleGenerating = useChatTitleStore((s) => s.setGenerating);
 
 	const [messages, setMessages] = useState<Array<UIMessage>>([]);
 	const [status, setStatus] = useState<"ready" | "submitted" | "streaming" | "error">("ready");
@@ -353,8 +346,6 @@ export function usePersistentChat({
 	const editAndRegenerate = useMutation(api.messages.editAndRegenerate);
 	const retryMessageMut = useMutation(api.messages.retryMessage);
 	const forkChatMut = useMutation(api.chats.fork);
-	const updateTitle = useMutation(api.chats.updateTitle);
-	const generateTitle = useAction(api.chats.generateTitle);
 	const startBackgroundStream = useMutation(api.backgroundStream.startStream);
 	const cleanupStaleJobs = useMutation(api.backgroundStream.cleanupStaleJobs);
 
@@ -516,24 +507,24 @@ export function usePersistentChat({
 				if (previousHash === nextHash) return prev;
 
 				const updated = [...prev];
-					updated[idx] = {
-						...updated[idx],
-						parts,
-						metadata: {
-								thinkingTimeSec: activeStreamJob.thinkingTimeSec,
-								reasoningRequested: jobReasoningRequested,
-								reasoningTokenCount: activeStreamJob.reasoningTokenCount,
-							modelId: activeStreamJob.model,
-							provider: activeStreamJob.provider,
-							reasoningEffort: activeStreamJob.options?.reasoningEffort,
-							webSearchEnabled: activeStreamJob.options?.enableWebSearch,
-							webSearchUsed: activeStreamJob.webSearchUsed,
-							webSearchCallCount: activeStreamJob.webSearchCallCount,
-							toolCallCount: activeStreamJob.toolCallCount,
-							resumedFromActiveStream: true,
-						},
-					};
-					return updated;
+				updated[idx] = {
+					...updated[idx],
+					parts,
+					metadata: {
+						thinkingTimeSec: activeStreamJob.thinkingTimeSec,
+						reasoningRequested: jobReasoningRequested,
+						reasoningTokenCount: activeStreamJob.reasoningTokenCount,
+						modelId: activeStreamJob.model,
+						provider: activeStreamJob.provider,
+						reasoningEffort: activeStreamJob.options?.reasoningEffort,
+						webSearchEnabled: activeStreamJob.options?.enableWebSearch,
+						webSearchUsed: activeStreamJob.webSearchUsed,
+						webSearchCallCount: activeStreamJob.webSearchCallCount,
+						toolCallCount: activeStreamJob.toolCallCount,
+						resumedFromActiveStream: true,
+					},
+				};
+				return updated;
 			});
 		}
 	}, [activeStreamJob, status]);
@@ -573,6 +564,8 @@ export function usePersistentChat({
 			}
 
 			let targetChatId = chatIdRef.current;
+			const startedWithoutChatId = !targetChatId;
+			const existingMessageCount = messagesResult?.length ?? messages.length;
 
 			if (!targetChatId) {
 				try {
@@ -582,10 +575,10 @@ export function usePersistentChat({
 					setCurrentChatId(targetChatId);
 					analytics.chatCreated();
 					onChatCreatedRef.current?.(targetChatId);
-			} catch {
-				toast.error("Failed to create chat");
-				return;
-			}
+				} catch {
+					toast.error("Failed to create chat");
+					return;
+				}
 			}
 
 			const userMsgId = crypto.randomUUID();
@@ -619,22 +612,20 @@ export function usePersistentChat({
 				});
 				allMsgs.push({ role: "user", content: message.text });
 
-				await startBackgroundStream({
-					chatId: targetChatId as Id<"chats">,
-					userId: convexUserId,
-					messageId: assistantMsgId,
-					model: runtimeModelId,
-					provider: activeProvider,
-					messages: allMsgs,
-						options: {
-							enableReasoning: runtimeReasoningEnabled,
-							reasoningEffort: runtimeReasoningEffort,
-							enableWebSearch: webSearchEnabled,
-							jonMode,
-							dynamicPrompt,
-							supportsToolCalls: runtimeSupportsToolCalls,
-						},
-					});
+			await startBackgroundStream({
+				chatId: targetChatId as Id<"chats">,
+				userId: convexUserId,
+				messageId: assistantMsgId,
+				model: runtimeModelId,
+				provider: activeProvider,
+				messages: allMsgs,
+				options: {
+					enableReasoning: runtimeReasoningEnabled,
+					reasoningEffort: runtimeReasoningEffort,
+					enableWebSearch: webSearchEnabled,
+					supportsToolCalls: runtimeSupportsToolCalls,
+				},
+			});
 
 				setStatus("streaming");
 				streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
@@ -642,7 +633,7 @@ export function usePersistentChat({
 				const initialParts: UIMessage["parts"] = [];
 				if (runtimeReasoningEffort !== "none") {
 					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
-				initialParts.push(reasoningPart as UIMessage["parts"][number]);
+					initialParts.push(reasoningPart as UIMessage["parts"][number]);
 				}
 				initialParts.push({ type: "text", text: "", state: "streaming" });
 
@@ -662,72 +653,39 @@ export function usePersistentChat({
 						},
 					},
 				]);
-
-				if (!chatId) {
-					const seedText = message.text.trim().slice(0, 300);
-					if (seedText) {
-						void (async () => {
-							if (!targetChatId) return;
-
-							const attemptGenerate = async () => {
-								try {
-									const generatedTitle = await generateTitle({
-										userId: convexUserId,
-										seedText,
-										length: chatTitleLength,
-										provider: activeProvider,
-									});
-
-									if (generatedTitle) {
-										await updateTitle({
-											chatId: targetChatId as Id<"chats">,
-											userId: convexUserId,
-											title: generatedTitle,
-										});
-										return { status: "success" } as const;
-									}
-									return { status: "empty" } as const;
-								} catch (err) {
-								const parsedError = err instanceof Error ? err : new Error(String(err));
-								return {
-									status: "error",
-									message: parsedError.message,
-									name: parsedError.name,
-									} as const;
-								}
-							};
-
-							if (isMountedRef.current) {
-								setTitleGenerating(targetChatId, true, "auto");
-							}
-							try {
-								const result = await attemptGenerate();
-								if (result.status === "error") {
-									const isRateLimit = result.name === "RateLimitError";
-									if (!isRateLimit) {
-										await new Promise((resolve) =>
-											setTimeout(resolve, TITLE_GENERATION_RETRY_DELAY_MS)
-										);
-										const retryResult = await attemptGenerate();
-										if (retryResult.status === "error") {
-											if (isMountedRef.current) {
-												toast.error("Failed to generate chat name");
-											}
-										}
-									} else {
-										if (isMountedRef.current) {
-											toast.error(result.message || "Rate limit reached. Try again later.");
-										}
-									}
-								}
-							} finally {
-								if (isMountedRef.current) {
-									setTitleGenerating(targetChatId, false);
-								}
-							}
-						})();
-					}
+				const shouldQueueAutoTitle = shouldTriggerAutoTitle({
+					startedWithoutChatId,
+					existingMessageCount,
+					seedText: message.text,
+				});
+				if (shouldQueueAutoTitle) {
+					void fetch("/api/workflow/generate-title", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							chatId: targetChatId,
+							userId: convexUserId,
+							seedText: message.text.trim().slice(0, 300),
+							length: "standard",
+							provider: activeProvider,
+							mode: "auto",
+						}),
+					})
+						.then(async (response) => {
+							if (response.ok) return;
+							const payload = await response.json().catch(() => null);
+							console.warn("[AutoTitle] Workflow request failed", {
+								status: response.status,
+								payload,
+							});
+						})
+						.catch((autoTitleError) => {
+							console.warn("[AutoTitle] Workflow request failed", autoTitleError);
+						});
 				}
+
 			} catch (err) {
 				const parsedError = err instanceof Error ? err : new Error("Unknown error");
 				setError(parsedError);
@@ -761,14 +719,21 @@ export function usePersistentChat({
 				}
 			}
 		},
-			[
-				convexUserId, isUserLoading, user?.id, chatId, messages, models,
-				activeProvider, webSearchEnabled, chatTitleLength,
-				jonMode, dynamicPrompt,
-				setTitleGenerating, createChat, sendMessages, updateTitle, generateTitle, startBackgroundStream,
-				cleanupStaleJobs,
-			],
-		);
+		[
+			convexUserId,
+			isUserLoading,
+			user?.id,
+			messages,
+			messagesResult,
+			models,
+			activeProvider,
+			webSearchEnabled,
+			createChat,
+			sendMessages,
+			startBackgroundStream,
+			cleanupStaleJobs,
+		],
+	);
 
 	const editMessage = useCallback(
 		async (messageId: string, newContent: string) => {
@@ -859,72 +824,68 @@ export function usePersistentChat({
 						return { role: m.role, content: textPart?.text || "" };
 					});
 
-				await startBackgroundStream({
-					chatId: targetChatId,
-					userId: convexUserId,
-					messageId: assistantMsgId,
-					model: runtimeModelId,
-					provider: activeProvider,
-					messages: allMsgs,
-					options: {
-						enableReasoning: runtimeReasoningEnabled,
-						reasoningEffort: runtimeReasoningEffort,
-						enableWebSearch: webSearchEnabled,
-						jonMode,
-						dynamicPrompt,
-						supportsToolCalls: runtimeSupportsToolCalls,
-					},
-				});
+			await startBackgroundStream({
+				chatId: targetChatId,
+				userId: convexUserId,
+				messageId: assistantMsgId,
+				model: runtimeModelId,
+				provider: activeProvider,
+				messages: allMsgs,
+				options: {
+					enableReasoning: runtimeReasoningEnabled,
+					reasoningEffort: runtimeReasoningEffort,
+					enableWebSearch: webSearchEnabled,
+					supportsToolCalls: runtimeSupportsToolCalls,
+				},
+			});
 
-				const initialParts: UIMessage["parts"] = [];
-				if (runtimeReasoningEffort !== "none") {
-					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
-					initialParts.push(reasoningPart as UIMessage["parts"][number]);
-				}
-				initialParts.push({ type: "text", text: "", state: "streaming" });
-
-				setMessages((prev) => [
-					...prev,
-					{
-						id: assistantMsgId,
-						role: "assistant",
-						parts: initialParts,
-						metadata: {
-							reasoningRequested: runtimeReasoningEffort !== "none",
-							modelId: runtimeModelId,
-							provider: activeProvider,
-							reasoningEffort: runtimeReasoningEffort,
-							webSearchEnabled,
-							resumedFromActiveStream: false,
-						},
-					},
-				]);
-
-				setStatus("streaming");
-				streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
-			} catch (err) {
-				const parsedError = err instanceof Error ? err : new Error("Unknown error");
-				setError(parsedError);
-				setStatus("error");
-				toast.error("Failed to edit message", {
-					description: parsedError.message,
-				});
+			const initialParts: UIMessage["parts"] = [];
+			if (runtimeReasoningEffort !== "none") {
+				const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
+				initialParts.push(reasoningPart as UIMessage["parts"][number]);
 			}
-		},
-		[
-			convexUserId,
-			messages,
-			messagesResult,
-			models,
-			activeProvider,
-			webSearchEnabled,
-			jonMode,
-			dynamicPrompt,
-			editAndRegenerate,
-			startBackgroundStream,
-			cleanupStaleJobs,
-		],
-	);
+			initialParts.push({ type: "text", text: "", state: "streaming" });
+
+			setMessages((prev) => [
+				...prev,
+				{
+					id: assistantMsgId,
+					role: "assistant",
+					parts: initialParts,
+					metadata: {
+						reasoningRequested: runtimeReasoningEffort !== "none",
+						modelId: runtimeModelId,
+						provider: activeProvider,
+						reasoningEffort: runtimeReasoningEffort,
+						webSearchEnabled,
+						resumedFromActiveStream: false,
+					},
+				},
+			]);
+
+			setStatus("streaming");
+			streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
+		} catch (err) {
+			const parsedError = err instanceof Error ? err : new Error("Unknown error");
+			setError(parsedError);
+			setStatus("error");
+			toast.error("Failed to edit message", {
+				description: getUserFriendlyError(parsedError.message),
+			});
+		}
+	},
+	[
+		convexUserId,
+		messages,
+		messagesResult,
+		models,
+		activeProvider,
+		webSearchEnabled,
+		editAndRegenerate,
+		startBackgroundStream,
+		cleanupStaleJobs,
+	],
+);
 
 	const retryMessage = useCallback(
 		async (messageId: string, overrideModelId?: string) => {
@@ -1009,72 +970,68 @@ export function usePersistentChat({
 						return { role: m.role, content: textPart?.text || "" };
 					});
 
-				await startBackgroundStream({
-					chatId: targetChatId,
-					userId: convexUserId,
-					messageId: assistantMsgId,
-					model: runtimeModelId,
-					provider: activeProvider,
-					messages: allMsgs,
-					options: {
-						enableReasoning: runtimeReasoningEnabled,
-						reasoningEffort: runtimeReasoningEffort,
-						enableWebSearch: webSearchEnabled,
-						jonMode,
-						dynamicPrompt,
-						supportsToolCalls: runtimeSupportsToolCalls,
-					},
-				});
+			await startBackgroundStream({
+				chatId: targetChatId,
+				userId: convexUserId,
+				messageId: assistantMsgId,
+				model: runtimeModelId,
+				provider: activeProvider,
+				messages: allMsgs,
+				options: {
+					enableReasoning: runtimeReasoningEnabled,
+					reasoningEffort: runtimeReasoningEffort,
+					enableWebSearch: webSearchEnabled,
+					supportsToolCalls: runtimeSupportsToolCalls,
+				},
+			});
 
-				const initialParts: UIMessage["parts"] = [];
-				if (runtimeReasoningEffort !== "none") {
-					const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
-					initialParts.push(reasoningPart as UIMessage["parts"][number]);
-				}
-				initialParts.push({ type: "text", text: "", state: "streaming" });
-
-				setMessages((prev) => [
-					...prev,
-					{
-						id: assistantMsgId,
-						role: "assistant",
-						parts: initialParts,
-						metadata: {
-							reasoningRequested: runtimeReasoningEffort !== "none",
-							modelId: runtimeModelId,
-							provider: activeProvider,
-							reasoningEffort: runtimeReasoningEffort,
-							webSearchEnabled,
-							resumedFromActiveStream: false,
-						},
-					},
-				]);
-
-				setStatus("streaming");
-				streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
-			} catch (err) {
-				const parsedError = err instanceof Error ? err : new Error("Unknown error");
-				setError(parsedError);
-				setStatus("error");
-				toast.error("Failed to retry message", {
-					description: parsedError.message,
-				});
+			const initialParts: UIMessage["parts"] = [];
+			if (runtimeReasoningEffort !== "none") {
+				const reasoningPart: ReasoningPartWithState = { type: "reasoning", text: "", state: "streaming" };
+				initialParts.push(reasoningPart as UIMessage["parts"][number]);
 			}
-		},
-		[
-			convexUserId,
-			messages,
-			messagesResult,
-			models,
-			activeProvider,
-			webSearchEnabled,
-			jonMode,
-			dynamicPrompt,
-			retryMessageMut,
-			startBackgroundStream,
-			cleanupStaleJobs,
-		],
-	);
+			initialParts.push({ type: "text", text: "", state: "streaming" });
+
+			setMessages((prev) => [
+				...prev,
+				{
+					id: assistantMsgId,
+					role: "assistant",
+					parts: initialParts,
+					metadata: {
+						reasoningRequested: runtimeReasoningEffort !== "none",
+						modelId: runtimeModelId,
+						provider: activeProvider,
+						reasoningEffort: runtimeReasoningEffort,
+						webSearchEnabled,
+						resumedFromActiveStream: false,
+					},
+				},
+			]);
+
+			setStatus("streaming");
+			streamingRef.current = { id: assistantMsgId, content: "", reasoning: "", chainHash: "[]" };
+		} catch (err) {
+			const parsedError = err instanceof Error ? err : new Error("Unknown error");
+			setError(parsedError);
+			setStatus("error");
+			toast.error("Failed to retry message", {
+				description: getUserFriendlyError(parsedError.message),
+			});
+		}
+	},
+	[
+		convexUserId,
+		messages,
+		messagesResult,
+		models,
+		activeProvider,
+		webSearchEnabled,
+		retryMessageMut,
+		startBackgroundStream,
+		cleanupStaleJobs,
+	],
+);
 
 	const forkMessage = useCallback(
 		async (messageId: string, overrideModelId?: string) => {
@@ -1146,47 +1103,43 @@ export function usePersistentChat({
 
 				await cleanupStaleJobs({ userId: convexUserId }).catch(() => {});
 
-				const assistantMsgId = crypto.randomUUID();
-				await startBackgroundStream({
-					chatId: newChatId,
-					userId: convexUserId,
-					messageId: assistantMsgId,
-					model: runtimeModelId,
-					provider: activeProvider,
-					messages: msgsUpToFork,
-					options: {
-						enableReasoning: runtimeReasoningEnabled,
-						reasoningEffort: runtimeReasoningEffort,
-						enableWebSearch: webSearchEnabled,
-						jonMode,
-						dynamicPrompt,
-						supportsToolCalls: runtimeSupportsToolCalls,
-					},
-				});
+			const assistantMsgId = crypto.randomUUID();
+			await startBackgroundStream({
+				chatId: newChatId,
+				userId: convexUserId,
+				messageId: assistantMsgId,
+				model: runtimeModelId,
+				provider: activeProvider,
+				messages: msgsUpToFork,
+				options: {
+					enableReasoning: runtimeReasoningEnabled,
+					reasoningEffort: runtimeReasoningEffort,
+					enableWebSearch: webSearchEnabled,
+					supportsToolCalls: runtimeSupportsToolCalls,
+				},
+			});
 
-				return newChatId;
-			} catch (err) {
-				const parsedError = err instanceof Error ? err : new Error("Unknown error");
-				toast.error("Failed to branch off", {
-					description: parsedError.message,
-				});
-				return undefined;
-			}
-		},
-		[
-			convexUserId,
-			messages,
-			models,
-			activeProvider,
-			webSearchEnabled,
-			jonMode,
-			dynamicPrompt,
-			forkChatMut,
-			cleanupStaleJobs,
-			startBackgroundStream,
-			messagesResult,
-		],
-	);
+			return newChatId;
+		} catch (err) {
+			const parsedError = err instanceof Error ? err : new Error("Unknown error");
+			toast.error("Failed to branch off", {
+				description: parsedError.message,
+			});
+			return undefined;
+		}
+	},
+	[
+		convexUserId,
+		messages,
+		models,
+		activeProvider,
+		webSearchEnabled,
+		forkChatMut,
+		cleanupStaleJobs,
+		startBackgroundStream,
+		messagesResult,
+	],
+);
 
 	const stop = useCallback(() => {
 		setStatus("ready");
