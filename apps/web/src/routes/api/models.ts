@@ -50,7 +50,6 @@ async function fetchModelsFromOpenRouter(): Promise<Response> {
 			headers: {
 				"Content-Type": "application/json",
 				"Cache-Control": "no-store",
-				"X-Models-Cache": "MISS",
 			},
 		});
 	} catch (error) {
@@ -141,7 +140,6 @@ export const Route = createFileRoute("/api/models")({
 							headers: {
 								"Content-Type": "application/json",
 								"Cache-Control": "no-store",
-								"X-Models-Cache": "HIT",
 							},
 						});
 					}

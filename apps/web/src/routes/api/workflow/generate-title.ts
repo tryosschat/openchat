@@ -93,11 +93,8 @@ function sanitizeGeneratedTitle(input: string): string {
 	return title.slice(0, TITLE_MAX_LENGTH);
 }
 
-function isLocalWorkflowRequest(request: Request): boolean {
-	const hostname = new URL(request.url).hostname;
-	return (
-		hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
-	);
+function isLocalWorkflowExecutionEnabled(): boolean {
+	return process.env.NODE_ENV !== "production";
 }
 
 function getWorkflowTriggerHeaders(): Record<string, string> {
@@ -359,7 +356,7 @@ export const Route = createFileRoute("/api/workflow/generate-title")({
 					}
 				}
 
-				if (isLocalWorkflowRequest(request)) {
+				if (isLocalWorkflowExecutionEnabled()) {
 					try {
 						const result = await runGenerateTitleInline(normalizedPayload, authToken);
 						if (!result.saved) {

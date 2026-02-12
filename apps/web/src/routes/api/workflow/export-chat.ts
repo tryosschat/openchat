@@ -72,11 +72,8 @@ function parseExportPayload(raw: unknown): ExportChatPayload | null {
 	};
 }
 
-function isLocalWorkflowRequest(request: Request): boolean {
-	const hostname = new URL(request.url).hostname;
-	return (
-		hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
-	);
+function isLocalWorkflowExecutionEnabled(): boolean {
+	return process.env.NODE_ENV !== "production";
 }
 
 function formatRole(role: string): string {
@@ -284,7 +281,7 @@ export const Route = createFileRoute("/api/workflow/export-chat")({
 					userId: authConvexUser._id,
 				};
 
-				if (isLocalWorkflowRequest(request)) {
+				if (isLocalWorkflowExecutionEnabled()) {
 					try {
 						const result = await runExportChatInline(normalizedPayload, authToken);
 						return json(result, { status: 200 });

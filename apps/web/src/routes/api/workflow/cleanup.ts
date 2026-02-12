@@ -14,11 +14,8 @@ const CLEANUP_BATCH_TIMEOUT_MS = 15_000;
 const CONVEX_SITE_URL =
 	process.env.VITE_CONVEX_SITE_URL || process.env.CONVEX_SITE_URL;
 
-function isLocalWorkflowRequest(request: Request): boolean {
-	const hostname = new URL(request.url).hostname;
-	return (
-		hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
-	);
+function isLocalWorkflowExecutionEnabled(): boolean {
+	return process.env.NODE_ENV !== "production";
 }
 
 function parseCleanupPayload(raw: unknown): CleanupPayload | null {
@@ -260,7 +257,7 @@ export const Route = createFileRoute("/api/workflow/cleanup")({
 					return json({ error: "Invalid cleanup payload" }, { status: 400 });
 				}
 
-				if (isLocalWorkflowRequest(request)) {
+				if (isLocalWorkflowExecutionEnabled()) {
 					try {
 						const result = await runCleanupInline(payload);
 						return json(result, { status: 200 });
