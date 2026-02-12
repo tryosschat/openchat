@@ -17,8 +17,9 @@ type AuthSessionResponse = {
 const CONVEX_SITE_URL =
 	process.env.VITE_CONVEX_SITE_URL || process.env.CONVEX_SITE_URL;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const ALLOW_AUTH_COOKIE_FALLBACK = process.env.ALLOW_AUTH_COOKIE_FALLBACK === "true";
 const IS_LOCAL_DEV =
-	!IS_PRODUCTION && !process.env.VERCEL && !process.env.CONVEX_CLOUD_URL;
+	!IS_PRODUCTION && (ALLOW_AUTH_COOKIE_FALLBACK || process.env.NODE_ENV === "test");
 
 function getCookieValue(cookieHeader: string, name: string): string | null {
 	const target = `${name}=`;

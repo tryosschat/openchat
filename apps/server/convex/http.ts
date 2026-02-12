@@ -93,7 +93,15 @@ http.route({
       dryRun?: unknown;
     };
 
-    if (typeof payload.workflowToken !== "string" || payload.workflowToken.trim().length === 0) {
+    const authorization = request.headers.get("authorization")?.trim();
+    const bearerToken = authorization?.startsWith("Bearer ")
+      ? authorization.slice("Bearer ".length).trim()
+      : null;
+    const bodyWorkflowToken =
+      typeof payload.workflowToken === "string" ? payload.workflowToken.trim() : null;
+    const workflowToken = bearerToken || bodyWorkflowToken;
+
+    if (!workflowToken) {
       return new Response(JSON.stringify({ error: "workflowToken is required" }), {
         status: 400,
         headers: { "content-type": "application/json" },
@@ -103,7 +111,7 @@ http.route({
     let result;
     try {
       result = await ctx.runAction(internal.cleanupAction.runCleanupBatchForWorkflow, {
-        workflowToken: payload.workflowToken.trim(),
+        workflowToken,
         retentionDays:
           typeof payload.retentionDays === "number" && Number.isFinite(payload.retentionDays)
             ? payload.retentionDays

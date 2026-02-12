@@ -314,16 +314,9 @@ export const startStream = mutation({
 		}
 
 		if (args.provider === "osschat") {
-			const currentDate = getCurrentDateKey();
 			const user = await ctx.db.get(userId);
 			if (!user) {
 				throw new Error("User not found");
-			}
-
-			const persistedUsageCents =
-				user.aiUsageDate === currentDate ? (user.aiUsageCents ?? 0) : 0;
-			if (persistedUsageCents >= DAILY_AI_LIMIT_CENTS) {
-				throw new Error("Daily usage limit reached. Connect your OpenRouter account to continue.");
 			}
 		}
 
@@ -1414,6 +1407,8 @@ export const executeStream = internalAction({
 						if (adjustment !== 0) {
 							await adjustDailyUsageInUpstash(job.userId, reservedDateKey, adjustment);
 						}
+						reservedUsageCents = 0;
+						reservedDateKey = null;
 					} else {
 						await incrementDailyUsageInUpstash(
 							job.userId,
@@ -1421,6 +1416,10 @@ export const executeStream = internalAction({
 							usageCents,
 						);
 					}
+				} else if (reservedDateKey && reservedUsageCents > 0) {
+					await adjustDailyUsageInUpstash(job.userId, reservedDateKey, -reservedUsageCents);
+					reservedUsageCents = 0;
+					reservedDateKey = null;
 				}
 			}
 
@@ -1462,12 +1461,10 @@ export const executeStream = internalAction({
 				}
 			}
 			const rawErrorMessage = error instanceof Error ? error.message : "Unknown error";
-			const lowerErrorMessage = rawErrorMessage.toLowerCase();
 			const safeErrorMessage =
-				lowerErrorMessage.includes("limit reached") ||
-				lowerErrorMessage.includes("rate limit") ||
-				lowerErrorMessage.includes("unauthorized") ||
-				lowerErrorMessage.includes("not found")
+				rawErrorMessage === "Daily usage limit reached. Connect your OpenRouter account to continue." ||
+				rawErrorMessage === "Usage tracking temporarily unavailable. Please retry shortly." ||
+				rawErrorMessage === "Chat not found or unauthorized"
 					? rawErrorMessage
 					: "An error occurred while processing your request.";
 			await ctx.runMutation(internal.backgroundStream.failStream, {

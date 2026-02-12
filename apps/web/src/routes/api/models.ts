@@ -8,6 +8,7 @@ const MODELS_CACHE_TTL_SECONDS = 60 * 60 * 4;
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_FETCH_TIMEOUT_MS = 10_000;
 const TRUST_PROXY_MODE = process.env.TRUST_PROXY?.trim().toLowerCase();
+const UNKNOWN_CLIENT_IP = "unknown";
 
 const modelsIpRatelimit = upstashRedis
 	? new Ratelimit({
@@ -60,7 +61,7 @@ async function fetchModelsFromOpenRouter(): Promise<Response> {
 
 function getClientIp(request: Request): string | null {
 	if (!TRUST_PROXY_MODE) {
-		return null;
+		return UNKNOWN_CLIENT_IP;
 	}
 
 	if (TRUST_PROXY_MODE === "cloudflare") {
@@ -78,18 +79,10 @@ function getClientIp(request: Request): string | null {
 	}
 
 	if (TRUST_PROXY_MODE === "true") {
-		const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
-		if (forwardedFor) {
-			const first = forwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-		}
-
-		const realIp = request.headers.get("x-real-ip")?.trim();
-		if (realIp) return realIp;
-
-		return null;
+		return UNKNOWN_CLIENT_IP;
 	}
-	return null;
+	console.warn("[Models API] Unrecognized TRUST_PROXY value, using shared rate-limit bucket");
+	return UNKNOWN_CLIENT_IP;
 }
 
 export const Route = createFileRoute("/api/models")({

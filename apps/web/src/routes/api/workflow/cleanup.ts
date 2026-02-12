@@ -81,6 +81,7 @@ async function runCleanupInline(payload: CleanupPayload): Promise<{
 	success: boolean;
 	batches: number;
 	totalDeleted: number;
+	limitReached: boolean;
 }> {
 	const workflowToken = process.env.WORKFLOW_CLEANUP_TOKEN;
 	if (!workflowToken) {
@@ -122,14 +123,11 @@ async function runCleanupInline(payload: CleanupPayload): Promise<{
 		await new Promise((resolve) => setTimeout(resolve, 1_000));
 	}
 
-	if (hitBatchLimit) {
-		throw new Error(`Cleanup exceeded maximum batches (${MAX_CLEANUP_BATCHES})`);
-	}
-
 	return {
-		success: true,
+		success: !hitBatchLimit,
 		batches,
 		totalDeleted,
+		limitReached: hitBatchLimit,
 	};
 }
 
@@ -147,8 +145,13 @@ async function runCleanupBatch(args: {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
+			Authorization: `Bearer ${args.workflowToken}`,
 		},
-		body: JSON.stringify(args),
+		body: JSON.stringify({
+			retentionDays: args.retentionDays,
+			batchSize: args.batchSize,
+			dryRun: args.dryRun,
+		}),
 		signal: AbortSignal.timeout(CLEANUP_BATCH_TIMEOUT_MS),
 	});
 
@@ -217,15 +220,12 @@ const workflow = serve<CleanupPayload>(async (context) => {
 		await context.sleep(`sleep-${batches}`, "1s");
 	}
 
-	if (hitBatchLimit) {
-		throw new Error(`Cleanup exceeded maximum batches (${MAX_CLEANUP_BATCHES})`);
-	}
-
 	return context.run("log-completion", async () => {
 		return {
-			success: true,
+			success: !hitBatchLimit,
 			batches,
 			totalDeleted,
+			limitReached: hitBatchLimit,
 		};
 	});
 });

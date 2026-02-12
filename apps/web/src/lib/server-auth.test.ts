@@ -17,6 +17,9 @@ describe("server-auth.getConvexAuthToken", () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
 		vi.unstubAllEnvs();
+		vi.stubEnv("ALLOW_AUTH_COOKIE_FALLBACK", "true");
+		vi.stubEnv("VERCEL", "");
+		vi.stubEnv("CONVEX_CLOUD_URL", "");
 	});
 
 	afterEach(() => {

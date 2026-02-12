@@ -214,7 +214,7 @@ const workflow = serve<GenerateTitlePayload>(async (context) => {
 	}
 
 	if (provider !== "osschat") {
-		return { saved: false, reason: "missing_openrouter_key" } as const;
+		return { saved: false, reason: "unsupported_provider" } as const;
 	}
 
 	const openRouterKey = process.env.OPENROUTER_API_KEY ?? null;
@@ -230,25 +230,30 @@ const workflow = serve<GenerateTitlePayload>(async (context) => {
 	].join(" ");
 
 	const llmResponse = await context.run("call-llm", async () => {
-		const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${openRouterKey}`,
-				"HTTP-Referer": process.env.VITE_CONVEX_SITE_URL || "https://osschat.io",
-				"X-Title": "OSSChat",
-			},
-			body: JSON.stringify({
-				model: TITLE_MODEL_ID,
-				messages: [
-					{ role: "system", content: systemPrompt },
-					{ role: "user", content: normalizedSeed },
-				],
-				temperature: 0.2,
-				max_tokens: 32,
-			}),
-			signal: AbortSignal.timeout(OPENROUTER_CALL_TIMEOUT_MS),
-		});
+		let response: Response;
+		try {
+			response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${openRouterKey}`,
+					"HTTP-Referer": process.env.VITE_CONVEX_SITE_URL || "https://osschat.io",
+					"X-Title": "OSSChat",
+				},
+				body: JSON.stringify({
+					model: TITLE_MODEL_ID,
+					messages: [
+						{ role: "system", content: systemPrompt },
+						{ role: "user", content: normalizedSeed },
+					],
+					temperature: 0.2,
+					max_tokens: 32,
+				}),
+				signal: AbortSignal.timeout(OPENROUTER_CALL_TIMEOUT_MS),
+			});
+		} catch {
+			return { status: 0, body: null };
+		}
 
 		let body: { choices?: Array<{ message?: { content?: string } }> } | null = null;
 		if (response.ok) {
