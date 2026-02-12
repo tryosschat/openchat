@@ -858,10 +858,6 @@ export const deleteAccountWorkflowStep = action({
 		args,
 	): Promise<{ deleted: number; hasMore: boolean; success?: boolean }> => {
 		const userId = await requireAuthUserIdFromAction(ctx, args.userId);
-		const identity = await ctx.auth.getUserIdentity();
-		if (!identity || identity.subject !== args.externalId) {
-			throw new Error("Unauthorized");
-		}
 
 		switch (args.step) {
 			case "delete-stream-jobs":

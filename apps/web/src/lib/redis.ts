@@ -183,10 +183,13 @@ export async function readStream(
 				: "text",
 		timestamp:
 			typeof message.ts === "string"
-				? Number.parseInt(message.ts, 10)
-				: typeof message.ts === "number"
+				? (() => {
+						const parsed = Number.parseInt(message.ts, 10);
+						return Number.isFinite(parsed) ? parsed : Date.now();
+					})()
+				: typeof message.ts === "number" && Number.isFinite(message.ts)
 					? message.ts
-				: Date.now(),
+					: Date.now(),
 	}));
 }
 

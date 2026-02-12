@@ -7,7 +7,7 @@ const MODELS_CACHE_KEY = "openchat:models";
 const MODELS_CACHE_TTL_SECONDS = 60 * 60 * 4;
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_FETCH_TIMEOUT_MS = 10_000;
-const TRUST_PROXY = process.env.TRUST_PROXY === "true";
+const TRUST_PROXY_MODE = process.env.TRUST_PROXY?.trim().toLowerCase();
 
 const modelsIpRatelimit = upstashRedis
 	? new Ratelimit({
@@ -60,17 +60,26 @@ async function fetchModelsFromOpenRouter(): Promise<Response> {
 }
 
 function getClientIp(request: Request): string | null {
-	if (!TRUST_PROXY) {
+	if (!TRUST_PROXY_MODE) {
 		return null;
 	}
 
-	const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-	if (cfConnectingIp) return cfConnectingIp;
+	if (TRUST_PROXY_MODE === "cloudflare") {
+		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
+		return cfConnectingIp || null;
+	}
 
-	const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-	if (vercelForwardedFor) {
-		const first = vercelForwardedFor.split(",")[0]?.trim();
-		if (first) return first;
+	if (TRUST_PROXY_MODE === "vercel") {
+		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
+		if (vercelForwardedFor) {
+			const first = vercelForwardedFor.split(",")[0]?.trim();
+			if (first) return first;
+		}
+		return null;
+	}
+
+	if (TRUST_PROXY_MODE !== "true") {
+		return null;
 	}
 
 	const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
@@ -96,8 +105,9 @@ export const Route = createFileRoute("/api/models")({
 				if (modelsIpRatelimit) {
 					const ip = getClientIp(request);
 					if (!ip) {
+						console.warn("[Models API] Trusted proxy IP unavailable for rate limit");
 						return json(
-							{ error: "Rate limiting unavailable: configure TRUST_PROXY" },
+							{ error: "Service temporarily unavailable" },
 							{ status: 503 },
 						);
 					}

@@ -74,6 +74,12 @@ function hasValidCleanupToken(headers: Headers): boolean {
 	return safeCompare(workflowHeader.trim(), expectedToken, expectedToken);
 }
 
+function hasWorkflowSigningKeysConfigured(): boolean {
+	return Boolean(
+		process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY,
+	);
+}
+
 async function runCleanupInline(payload: CleanupPayload): Promise<{
 	success: boolean;
 	batches: number;
@@ -233,6 +239,9 @@ export const Route = createFileRoute("/api/workflow/cleanup")({
 			POST: async ({ request }) => {
 				const isWorkflowCallback = Boolean(request.headers.get("upstash-signature"));
 				if (isWorkflowCallback) {
+					if (!hasWorkflowSigningKeysConfigured()) {
+						return json({ error: "Workflow signing not configured" }, { status: 500 });
+					}
 					return workflow.POST({ request });
 				}
 
