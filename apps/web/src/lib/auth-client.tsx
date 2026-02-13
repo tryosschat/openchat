@@ -253,10 +253,28 @@ export async function signUpWithEmail(
   });
 }
 
+/**
+ * Sensitive sessionStorage keys that store chat content, drafts, and stream data.
+ * These must be cleared on sign-out to prevent data leakage on shared devices.
+ */
+const SENSITIVE_SESSION_KEYS = [
+  "openchat-chats-cache",
+  "openchat-prompt-drafts",
+  "openchat-stream",
+];
+
 export async function signOut() {
   return authClient.signOut({
     fetchOptions: {
       onSuccess: () => {
+        // Clear sensitive chat/draft/stream data from sessionStorage
+        for (const key of SENSITIVE_SESSION_KEYS) {
+          try {
+            sessionStorage.removeItem(key);
+          } catch {
+            // Ignore storage access errors
+          }
+        }
         window.location.href = "/auth/sign-in";
       },
     },

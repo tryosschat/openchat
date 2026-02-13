@@ -204,7 +204,7 @@ export const useStreamStore = create<StreamState>()(
       }),
 		{
 			name: "openchat-stream",
-			storage: createJSONStorage(() => localStorage),
+			storage: createJSONStorage(() => sessionStorage),
 			partialize: (state) => ({
 				activeStream: state.activeStream,
 				pendingUserMessage: state.pendingUserMessage,
