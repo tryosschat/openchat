@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@server/convex/_generated/api";
-import { PencilIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
+import { GitForkIcon, PencilIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import {
@@ -169,16 +169,21 @@ function ChatGroup({
                     autoFocus
                   />
                 ) : (
-                  <span
-                    className="truncate"
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onDoubleClick={(event) => {
-                      onStartEdit(chat._id, chat.title, event);
-                    }}
-                  >
-                    {chat.title}
-                  </span>
-                )}
+                   <>
+                     {chat.forkedFromChatId && (
+                       <GitForkIcon className="size-3.5 shrink-0 text-sidebar-foreground/40" />
+                     )}
+                     <span
+                       className="truncate"
+                       onMouseDown={(event) => event.stopPropagation()}
+                       onDoubleClick={(event) => {
+                         onStartEdit(chat._id, chat.title, event);
+                       }}
+                     >
+                       {chat.title}
+                     </span>
+                   </>
+                 )}
               </SidebarMenuButton>
               <button
                 type="button"

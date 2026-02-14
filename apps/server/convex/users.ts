@@ -1,13 +1,11 @@
-import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { incrementStat, decrementStat, STAT_KEYS } from "./lib/dbStats";
 import { rateLimiter } from "./lib/rateLimiter";
 import { throwRateLimitError } from "./lib/rateLimitUtils";
 import { getProfileByUserId, getOrCreateProfile } from "./lib/profiles";
-import { components, internal } from "./_generated/api";
-import { requireAuthUserId, requireAuthUserIdFromAction } from "./lib/auth";
-
-const EMAIL_LINK_MIGRATION_DEADLINE_MS = Date.parse("2026-06-01T00:00:00.000Z");
+import { components } from "./_generated/api";
+import { requireAuthUserId } from "./lib/auth";
 
 // User with profile data (for backwards-compatible responses)
 // Includes merged profile data that prefers profile over user during migration
@@ -31,6 +29,28 @@ const userWithProfileDoc = v.object({
 	createdAt: v.number(),
 	updatedAt: v.number(),
 	// Flag to indicate if profile exists (useful for debugging migration)
+	hasProfile: v.boolean(),
+});
+
+// Public-safe user DTO — excludes encrypted secrets (e.g. encryptedOpenRouterKey).
+// Client-facing queries must use this validator instead of userWithProfileDoc.
+const publicUserDoc = v.object({
+	_id: v.id("users"),
+	_creationTime: v.number(),
+	externalId: v.string(),
+	email: v.optional(v.string()),
+	name: v.optional(v.string()),
+	avatarUrl: v.optional(v.string()),
+	hasOpenRouterKey: v.boolean(),
+	fileUploadCount: v.number(),
+	aiUsageCents: v.optional(v.number()),
+	aiUsageDate: v.optional(v.string()),
+	banned: v.optional(v.boolean()),
+	bannedAt: v.optional(v.number()),
+	banReason: v.optional(v.string()),
+	banExpiresAt: v.optional(v.number()),
+	createdAt: v.number(),
+	updatedAt: v.number(),
 	hasProfile: v.boolean(),
 });
 
@@ -72,7 +92,7 @@ export const ensure = mutation({
 
 		// MIGRATION: Link WorkOS users to Better Auth by email
 		// Uses .first() since duplicate emails may exist from prior migrations
-		if (!existing && args.email && Date.now() < EMAIL_LINK_MIGRATION_DEADLINE_MS) {
+		if (!existing && args.email) {
 			const existingByEmail = await ctx.db
 				.query("users")
 				.withIndex("by_email", (q) => q.eq("email", args.email))
@@ -190,7 +210,7 @@ export const getByExternalId = query({
 	args: {
 		externalId: v.string(),
 	},
-	returns: v.union(userWithProfileDoc, v.null()),
+	returns: v.union(publicUserDoc, v.null()),
 	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity || identity.subject !== args.externalId) return null;
@@ -206,6 +226,8 @@ export const getByExternalId = query({
 		const profile = await getProfileByUserId(ctx, user._id);
 
 		// Return merged data with migration fallback
+		// NOTE: encryptedOpenRouterKey is intentionally excluded from this public query.
+		// Use getByExternalIdInternal for server-side access to encrypted secrets.
 		return {
 			_id: user._id,
 			_creationTime: user._creationTime,
@@ -214,6 +236,7 @@ export const getByExternalId = query({
 			// Profile fields: prefer profile data, fall back to user data for migration
 			name: profile?.name ?? user.name,
 			avatarUrl: profile?.avatarUrl ?? user.avatarUrl,
+			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
 			fileUploadCount: profile?.fileUploadCount ?? user.fileUploadCount ?? 0,
 			aiUsageCents: user.aiUsageCents,
 			aiUsageDate: user.aiUsageDate,
@@ -271,7 +294,7 @@ export const getByExternalIdInternal = internalQuery({
 		args: {
 			userId: v.id("users"),
 		},
-		returns: v.union(userWithProfileDoc, v.null()),
+		returns: v.union(publicUserDoc, v.null()),
 		handler: async (ctx, args) => {
 			const userId = await requireAuthUserId(ctx, args.userId);
 			const user = await ctx.db.get(userId);
@@ -281,6 +304,8 @@ export const getByExternalIdInternal = internalQuery({
 		const profile = await getProfileByUserId(ctx, user._id);
 
 		// Return merged data with migration fallback
+		// NOTE: encryptedOpenRouterKey is intentionally excluded from this public query.
+		// Use getOpenRouterKeyInternal for server-side access to encrypted secrets.
 		return {
 			_id: user._id,
 			_creationTime: user._creationTime,
@@ -289,6 +314,7 @@ export const getByExternalIdInternal = internalQuery({
 			// Profile fields: prefer profile data, fall back to user data for migration
 			name: profile?.name ?? user.name,
 			avatarUrl: profile?.avatarUrl ?? user.avatarUrl,
+			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
 			fileUploadCount: profile?.fileUploadCount ?? user.fileUploadCount ?? 0,
 			aiUsageCents: user.aiUsageCents,
 			aiUsageDate: user.aiUsageDate,
@@ -596,309 +622,18 @@ export const updateName = mutation({
 	},
 });
 
-const DELETE_BATCH_SIZE_DEFAULT = 100;
-const DELETE_BATCH_SIZE_MAX = 500;
-const MAX_DELETE_BATCH_LOOPS = 1_000;
-
-function normalizeBatchSize(value?: number): number {
-	if (!value || !Number.isFinite(value) || value <= 0) {
-		return DELETE_BATCH_SIZE_DEFAULT;
-	}
-	return Math.min(Math.floor(value), DELETE_BATCH_SIZE_MAX);
-}
-
-const deletionBatchResult = v.object({
-	deleted: v.number(),
-	hasMore: v.boolean(),
-});
-
-export const deleteUserStreamJobs = internalMutation({
-	args: {
-		userId: v.id("users"),
-		batchSize: v.optional(v.number()),
-	},
-	returns: deletionBatchResult,
-	handler: async (ctx, args) => {
-		const batchSize = normalizeBatchSize(args.batchSize);
-		const streamJobs = await ctx.db
-			.query("streamJobs")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
-			.take(batchSize);
-
-		for (const job of streamJobs) {
-			await ctx.db.delete(job._id);
-		}
-
-		return {
-			deleted: streamJobs.length,
-			hasMore: streamJobs.length === batchSize,
-		};
-	},
-});
-
-export const deleteUserMessages = internalMutation({
-	args: {
-		userId: v.id("users"),
-		batchSize: v.optional(v.number()),
-	},
-	returns: deletionBatchResult,
-	handler: async (ctx, args) => {
-		const batchSize = normalizeBatchSize(args.batchSize);
-		const messages = await ctx.db
-			.query("messages")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
-			.take(batchSize);
-
-		for (const message of messages) {
-			await ctx.db.delete(message._id);
-		}
-
-		return {
-			deleted: messages.length,
-			hasMore: messages.length === batchSize,
-		};
-	},
-});
-
-export const deleteUserChats = internalMutation({
-	args: {
-		userId: v.id("users"),
-		batchSize: v.optional(v.number()),
-	},
-	returns: deletionBatchResult,
-	handler: async (ctx, args) => {
-		const batchSize = normalizeBatchSize(args.batchSize);
-		const chats = await ctx.db
-			.query("chats")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
-			.take(batchSize);
-
-		for (const chat of chats) {
-			await ctx.db.delete(chat._id);
-		}
-
-		return {
-			deleted: chats.length,
-			hasMore: chats.length === batchSize,
-		};
-	},
-});
-
-export const deleteUserFiles = internalMutation({
-	args: {
-		userId: v.id("users"),
-		batchSize: v.optional(v.number()),
-	},
-	returns: deletionBatchResult,
-	handler: async (ctx, args) => {
-		const batchSize = normalizeBatchSize(args.batchSize);
-		const files = await ctx.db
-			.query("fileUploads")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
-			.take(batchSize);
-
-		for (const file of files) {
-			try {
-				await ctx.storage.delete(file.storageId);
-			} catch (e) {
-				const message = e instanceof Error ? e.message : String(e);
-				if (!message.toLowerCase().includes("not found")) {
-					console.error("Unexpected error deleting storage file:", file.storageId, message);
-				}
-			}
-			await ctx.db.delete(file._id);
-		}
-
-		return {
-			deleted: files.length,
-			hasMore: files.length === batchSize,
-		};
-	},
-});
-
-export const deleteUserChatReadStatuses = internalMutation({
-	args: {
-		userId: v.id("users"),
-		batchSize: v.optional(v.number()),
-	},
-	returns: deletionBatchResult,
-	handler: async (ctx, args) => {
-		const batchSize = normalizeBatchSize(args.batchSize);
-		const statuses = await ctx.db
-			.query("chatReadStatus")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
-			.take(batchSize);
-
-		for (const status of statuses) {
-			await ctx.db.delete(status._id);
-		}
-
-		return {
-			deleted: statuses.length,
-			hasMore: statuses.length === batchSize,
-		};
-	},
-});
-
-export const deleteUserPromptTemplates = internalMutation({
-	args: {
-		userId: v.id("users"),
-		batchSize: v.optional(v.number()),
-	},
-	returns: deletionBatchResult,
-	handler: async (ctx, args) => {
-		const batchSize = normalizeBatchSize(args.batchSize);
-		const templates = await ctx.db
-			.query("promptTemplates")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
-			.take(batchSize);
-
-		for (const template of templates) {
-			await ctx.db.delete(template._id);
-		}
-
-		return {
-			deleted: templates.length,
-			hasMore: templates.length === batchSize,
-		};
-	},
-});
-
-export const deleteUserRecord = internalMutation({
-	args: {
-		userId: v.id("users"),
-		externalId: v.string(),
-	},
-	returns: v.object({ success: v.boolean() }),
-	handler: async (ctx, args) => {
-		const user = await ctx.db.get(args.userId);
-		if (!user || user.externalId !== args.externalId) {
-			return { success: false };
-		}
-
-		await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
-			input: {
-				model: "session",
-				where: [{ field: "userId", operator: "eq", value: args.externalId }],
-			},
-			paginationOpts: { cursor: null, numItems: 1000 },
-		});
-
-		await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
-			input: {
-				model: "account",
-				where: [{ field: "userId", operator: "eq", value: args.externalId }],
-			},
-			paginationOpts: { cursor: null, numItems: 100 },
-		});
-
-		await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
-			input: {
-				model: "user",
-				where: [{ field: "_id", operator: "eq", value: args.externalId }],
-			},
-			paginationOpts: { cursor: null, numItems: 1 },
-		});
-
-		// chatReadStatuses and promptTemplates are now deleted in separate
-		// workflow steps (delete-chat-read-statuses / delete-prompt-templates)
-		// via deleteAccountWorkflowStep, ensuring each batch runs in its own
-		// transaction and avoids hitting Convex per-transaction write limits.
-
-		const profile = await ctx.db
-			.query("profiles")
-			.withIndex("by_user", (q) => q.eq("userId", args.userId))
-			.unique();
-		if (profile) {
-			await ctx.db.delete(profile._id);
-		}
-
-		await ctx.db.delete(args.userId);
-		await decrementStat(ctx, STAT_KEYS.USERS_TOTAL);
-
-		return { success: true };
-	},
-});
-
-export const deleteAccountWorkflowStep = action({
-	args: {
-		userId: v.id("users"),
-		externalId: v.string(),
-		step: v.union(
-			v.literal("delete-stream-jobs"),
-			v.literal("delete-messages"),
-			v.literal("delete-chats"),
-			v.literal("delete-files"),
-			v.literal("delete-chat-read-statuses"),
-			v.literal("delete-prompt-templates"),
-			v.literal("delete-user"),
-		),
-		batchSize: v.optional(v.number()),
-	},
-	returns: v.object({
-		deleted: v.number(),
-		hasMore: v.boolean(),
-		success: v.optional(v.boolean()),
-	}),
-	handler: async (
-		ctx,
-		args,
-	): Promise<{ deleted: number; hasMore: boolean; success?: boolean }> => {
-		const userId = await requireAuthUserIdFromAction(ctx, args.userId);
-
-		switch (args.step) {
-			case "delete-stream-jobs":
-				return await ctx.runMutation(internal.users.deleteUserStreamJobs, {
-					userId,
-					batchSize: args.batchSize,
-				});
-			case "delete-messages":
-				return await ctx.runMutation(internal.users.deleteUserMessages, {
-					userId,
-					batchSize: args.batchSize,
-				});
-			case "delete-chats":
-				return await ctx.runMutation(internal.users.deleteUserChats, {
-					userId,
-					batchSize: args.batchSize,
-				});
-			case "delete-files":
-				return await ctx.runMutation(internal.users.deleteUserFiles, {
-					userId,
-					batchSize: args.batchSize,
-				});
-			case "delete-chat-read-statuses":
-				return await ctx.runMutation(internal.users.deleteUserChatReadStatuses, {
-					userId,
-				});
-			case "delete-prompt-templates":
-				return await ctx.runMutation(internal.users.deleteUserPromptTemplates, {
-					userId,
-				});
-			case "delete-user": {
-				const result: { success: boolean } = await ctx.runMutation(
-					internal.users.deleteUserRecord,
-					{
-						userId,
-						externalId: args.externalId,
-					},
-				);
-				return {
-					deleted: result.success ? 1 : 0,
-					hasMore: false,
-					success: result.success,
-				};
-			}
-		}
-	},
-});
-
 /**
- * @deprecated Use deleteAccountWorkflowStep (action) instead.
- * This mutation runs all deletes in a single transaction, which can hit
- * Convex per-transaction write limits for users with large amounts of data.
- * The workflow-based approach (deleteAccountWorkflowStep) isolates each
- * deletion step into its own transaction.
+ * Permanently delete a user account and all associated data.
+ * This is an irreversible action that removes:
+ * - All chats and messages
+ * - All file uploads and storage blobs
+ * - All prompt templates
+ * - User profile and settings
+ * - Better Auth sessions and account links
+ *
+ * Note: For users with very large amounts of data, this mutation may approach
+ * Convex timeout limits. Consider breaking into scheduled jobs for production
+ * use with high-volume users.
  */
 export const deleteAccount = mutation({
 	args: {
@@ -947,51 +682,67 @@ export const deleteAccount = mutation({
 		});
 
 		// 4. Delete streamJobs
-		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
-			const result = await ctx.runMutation(internal.users.deleteUserStreamJobs, {
-				userId,
-			});
-			if (!result.hasMore) break;
+		const streamJobs = await ctx.db
+			.query("streamJobs")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const job of streamJobs) {
+			await ctx.db.delete(job._id);
 		}
 
 		// 5. Delete chatReadStatus
-		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
-			const result = await ctx.runMutation(internal.users.deleteUserChatReadStatuses, {
-				userId,
-			});
-			if (!result.hasMore) break;
+		const readStatuses = await ctx.db
+			.query("chatReadStatus")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const status of readStatuses) {
+			await ctx.db.delete(status._id);
 		}
 
 		// 6. Delete fileUploads AND storage blobs
-		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
-			const result = await ctx.runMutation(internal.users.deleteUserFiles, {
-				userId,
-			});
-			if (!result.hasMore) break;
+		const fileUploads = await ctx.db
+			.query("fileUploads")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const file of fileUploads) {
+			// Delete the actual file from Convex storage
+			try {
+				await ctx.storage.delete(file.storageId);
+			} catch (e) {
+				// Only log unexpected errors, not "not found" which is expected if file was already deleted
+				const message = e instanceof Error ? e.message : String(e);
+				if (!message.toLowerCase().includes("not found")) {
+					console.error("Unexpected error deleting storage file:", file.storageId, message);
+				}
+			}
+			await ctx.db.delete(file._id);
 		}
 
 		// 7. Delete messages (all messages for all user's chats)
-		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
-			const result = await ctx.runMutation(internal.users.deleteUserMessages, {
-				userId,
-			});
-			if (!result.hasMore) break;
+		const messages = await ctx.db
+			.query("messages")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const message of messages) {
+			await ctx.db.delete(message._id);
 		}
 
 		// 8. Delete chats
-		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
-			const result = await ctx.runMutation(internal.users.deleteUserChats, {
-				userId,
-			});
-			if (!result.hasMore) break;
+		const chats = await ctx.db
+			.query("chats")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const chat of chats) {
+			await ctx.db.delete(chat._id);
 		}
 
 		// 9. Delete promptTemplates
-		for (let batch = 0; batch < MAX_DELETE_BATCH_LOOPS; batch++) {
-			const result = await ctx.runMutation(internal.users.deleteUserPromptTemplates, {
-				userId,
-			});
-			if (!result.hasMore) break;
+		const templates = await ctx.db
+			.query("promptTemplates")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const template of templates) {
+			await ctx.db.delete(template._id);
 		}
 
 		// 10. Delete profile
