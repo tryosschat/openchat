@@ -4,6 +4,7 @@ import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
 import { createContext, memo, useContext, useEffect, useState } from "react";
 import { Streamdown } from "streamdown";
+import { hardenedRehypePlugins } from "@/lib/streamdown-security";
 import { Shimmer } from "./shimmer";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -154,7 +155,7 @@ export const ReasoningContent = memo(
 			)}
 			{...props}
 		>
-			<Streamdown>{children}</Streamdown>
+			<Streamdown rehypePlugins={hardenedRehypePlugins}>{children}</Streamdown>
 		</CollapsibleContent>
 	),
 );

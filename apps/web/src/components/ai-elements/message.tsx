@@ -9,6 +9,7 @@
 
 import { createContext, isValidElement, memo, useContext, useMemo, useState } from 'react'
 import { Streamdown } from 'streamdown'
+import { hardenedRehypePlugins } from '@/lib/streamdown-security'
 import { TriangleAlertIcon } from 'lucide-react'
 import {
   CodeBlock,
@@ -340,7 +341,7 @@ export const MessageResponse = ({
       )}
       {...props}
     >
-      <Streamdown components={streamdownComponents} linkSafety={linkSafety}>{displayText}</Streamdown>
+      <Streamdown components={streamdownComponents} linkSafety={linkSafety} rehypePlugins={hardenedRehypePlugins}>{displayText}</Streamdown>
     </div>
   )
 }

@@ -22,6 +22,7 @@ import { ArrowUpIcon, BrainIcon, GlobeIcon,
   XIcon,
   } from "lucide-react";
 import { Streamdown } from "streamdown";
+import { hardenedRehypePlugins } from "@/lib/streamdown-security";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import {
@@ -482,7 +483,7 @@ function ChainOfThought({
             >
               {step.type === "reasoning" && step.content && (
                 <div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground">
-                  <Streamdown>{step.content}</Streamdown>
+                  <Streamdown rehypePlugins={hardenedRehypePlugins}>{step.content}</Streamdown>
                 </div>
               )}
               {step.type === "tool" && step.toolState === "output-available" && !!step.toolOutput && (
