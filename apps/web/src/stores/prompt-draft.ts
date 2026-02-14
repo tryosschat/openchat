@@ -1,35 +1,21 @@
 import { create } from "zustand";
-import { createJSONStorage, devtools, persist } from "zustand/middleware";
+import { devtools } from "zustand/middleware";
 
 /**
- * Store for persisting prompt drafts within the current browser session.
+ * Store for prompt drafts kept in-memory only.
  *
-<<<<<<< HEAD
- * Uses sessionStorage instead of localStorage to limit exposure of sensitive
- * chat content — data is scoped to the tab/session and not accessible after
- * the browser session ends.
-||||||| 54e09ce
- * Store for persisting prompt drafts across page reloads.
-=======
- * Security: Uses sessionStorage instead of localStorage to limit exposure
- * of sensitive draft content. Drafts are automatically cleared when the
- * browser tab is closed, reducing the risk of exfiltration via XSS or
- * compromised browser profiles.
->>>>>>> main
+ * Security: Drafts are NOT persisted to sessionStorage or localStorage.
+ * Keeping drafts exclusively in memory prevents exfiltration of sensitive
+ * chat content via XSS attacks that read Web Storage.  Drafts are
+ * naturally cleared when the tab is closed or the page is refreshed.
  *
  * Non-annoying approach:
  * - Drafts are saved per-chat (or "global" for new chat input)
  * - Drafts are automatically cleared when a message is sent
-<<<<<<< HEAD
- * - Old drafts are cleaned up after 7 days to prevent storage bloat
-||||||| 54e09ce
- * - Old drafts are cleaned up after 7 days to prevent localStorage bloat
-=======
  * - Old drafts are cleaned up after 24 hours as a defensive measure
->>>>>>> main
  */
 
-const DRAFT_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours (session-scoped, defensive expiry)
+const DRAFT_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours (defensive expiry)
 const GLOBAL_DRAFT_KEY = "__global__";
 
 interface PromptDraft {
@@ -48,59 +34,14 @@ interface PromptDraftState {
 
 export const usePromptDraftStore = create<PromptDraftState>()(
 	devtools(
-		persist(
-			(set, get) => ({
-				drafts: {},
+		(set, get) => ({
+			drafts: {},
 
-				setDraft: (chatId, text) => {
-					const key = chatId ?? GLOBAL_DRAFT_KEY;
+			setDraft: (chatId, text) => {
+				const key = chatId ?? GLOBAL_DRAFT_KEY;
 
-					// Don't persist empty drafts - just clear them
-					if (!text.trim()) {
-						set(
-							(state) => {
-								const { [key]: _, ...rest } = state.drafts;
-								return { drafts: rest };
-							},
-							false,
-							"prompt-draft/clear",
-						);
-						return;
-					}
-
-					set(
-						(state) => ({
-							drafts: {
-								...state.drafts,
-								[key]: {
-									text,
-									updatedAt: Date.now(),
-								},
-							},
-						}),
-						false,
-						"prompt-draft/set",
-					);
-				},
-
-				getDraft: (chatId) => {
-					const key = chatId ?? GLOBAL_DRAFT_KEY;
-					const draft = get().drafts[key] as PromptDraft | undefined;
-
-					if (!draft) {
-						return "";
-					}
-
-					// Don't return expired drafts
-					if (Date.now() - draft.updatedAt < DRAFT_EXPIRY_MS) {
-						return draft.text;
-					}
-
-					return "";
-				},
-
-				clearDraft: (chatId) => {
-					const key = chatId ?? GLOBAL_DRAFT_KEY;
+				// Don't persist empty drafts - just clear them
+				if (!text.trim()) {
 					set(
 						(state) => {
 							const { [key]: _, ...rest } = state.drafts;
@@ -109,34 +50,73 @@ export const usePromptDraftStore = create<PromptDraftState>()(
 						false,
 						"prompt-draft/clear",
 					);
-				},
+					return;
+				}
 
-				clearAllDrafts: () => {
-					set({ drafts: {} }, false, "prompt-draft/clear-all");
-				},
-
-				cleanupExpiredDrafts: () => {
-					const now = Date.now();
-					set(
-						(state) => {
-							const cleaned: Record<string, PromptDraft> = {};
-							for (const [key, draft] of Object.entries(state.drafts)) {
-								if (now - draft.updatedAt < DRAFT_EXPIRY_MS) {
-									cleaned[key] = draft;
-								}
-							}
-							return { drafts: cleaned };
+				set(
+					(state) => ({
+						drafts: {
+							...state.drafts,
+							[key]: {
+								text,
+								updatedAt: Date.now(),
+							},
 						},
-						false,
-						"prompt-draft/cleanup",
-					);
-				},
-			}),
-			{
-				name: "openchat-prompt-drafts",
-				storage: createJSONStorage(() => sessionStorage),
+					}),
+					false,
+					"prompt-draft/set",
+				);
 			},
-		),
+
+			getDraft: (chatId) => {
+				const key = chatId ?? GLOBAL_DRAFT_KEY;
+				const draft = get().drafts[key] as PromptDraft | undefined;
+
+				if (!draft) {
+					return "";
+				}
+
+				// Don't return expired drafts
+				if (Date.now() - draft.updatedAt < DRAFT_EXPIRY_MS) {
+					return draft.text;
+				}
+
+				return "";
+			},
+
+			clearDraft: (chatId) => {
+				const key = chatId ?? GLOBAL_DRAFT_KEY;
+				set(
+					(state) => {
+						const { [key]: _, ...rest } = state.drafts;
+						return { drafts: rest };
+					},
+					false,
+					"prompt-draft/clear",
+				);
+			},
+
+			clearAllDrafts: () => {
+				set({ drafts: {} }, false, "prompt-draft/clear-all");
+			},
+
+			cleanupExpiredDrafts: () => {
+				const now = Date.now();
+				set(
+					(state) => {
+						const cleaned: Record<string, PromptDraft> = {};
+						for (const [key, draft] of Object.entries(state.drafts)) {
+							if (now - draft.updatedAt < DRAFT_EXPIRY_MS) {
+								cleaned[key] = draft;
+							}
+						}
+						return { drafts: cleaned };
+					},
+					false,
+					"prompt-draft/cleanup",
+				);
+			},
+		}),
 		{ name: "prompt-draft-store" },
 	),
 );

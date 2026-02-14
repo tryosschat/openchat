@@ -14,6 +14,7 @@ import {
 } from "@convex-dev/better-auth/client/plugins";
 import { env } from "./env";
 import { analytics } from "./analytics";
+import { usePromptDraftStore } from "@/stores/prompt-draft";
 import type {ReactNode} from "react";
 
 
@@ -220,12 +221,15 @@ export async function signUpWithEmail(
 }
 
 /**
- * Sensitive sessionStorage keys that store chat content, drafts, and stream data.
+ * Sensitive sessionStorage keys that store chat content and stream data.
  * These must be cleared on sign-out to prevent data leakage on shared devices.
+ *
+ * Note: "openchat-prompt-drafts" was removed because prompt drafts are now
+ * stored in-memory only (not in sessionStorage) to mitigate XSS data
+ * exfiltration risks.
  */
 const SENSITIVE_SESSION_KEYS = [
   "openchat-chats-cache",
-  "openchat-prompt-drafts",
   "openchat-stream",
 ];
 
@@ -233,7 +237,7 @@ export async function signOut() {
   return authClient.signOut({
     fetchOptions: {
       onSuccess: () => {
-        // Clear sensitive chat/draft/stream data from sessionStorage
+        // Clear sensitive chat/stream data from sessionStorage
         for (const key of SENSITIVE_SESSION_KEYS) {
           try {
             sessionStorage.removeItem(key);
@@ -241,6 +245,8 @@ export async function signOut() {
             // Ignore storage access errors
           }
         }
+        // Clear in-memory prompt drafts
+        usePromptDraftStore.getState().clearAllDrafts();
         window.location.href = "/auth/sign-in";
       },
     },
