@@ -1,10 +1,18 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { buildMatchingMap, POPULAR_MODEL_IDS, type AAModel } from "./lib/model-matching";
+import { buildMatchingMap, type AAModel } from "./lib/model_matching";
 
 type AAModelsResponse = {
 	data?: AAModel[];
+};
+
+type OpenRouterModel = {
+	id: string;
+};
+
+type OpenRouterModelsResponse = {
+	data?: OpenRouterModel[];
 };
 
 const benchmarkValidator = v.object({
@@ -32,6 +40,14 @@ export const fetchAndStoreBenchmarks = internalAction({
 		}
 
 		try {
+			const openRouterResponse = await fetch("https://openrouter.ai/api/v1/models");
+			if (!openRouterResponse.ok) {
+				throw new Error(`Failed to fetch OpenRouter models: ${openRouterResponse.status}`);
+			}
+			const openRouterPayload = (await openRouterResponse.json()) as OpenRouterModelsResponse;
+			const openRouterIds = (openRouterPayload.data ?? []).map((m) => m.id);
+			console.log(`Fetched ${openRouterIds.length} OpenRouter model IDs`);
+
 			const response = await fetch("https://artificialanalysis.ai/api/v2/data/llms/models", {
 				headers: {
 					"x-api-key": apiKey,
@@ -44,7 +60,7 @@ export const fetchAndStoreBenchmarks = internalAction({
 
 			const payload = (await response.json()) as AAModelsResponse;
 			const aaModels = Array.isArray(payload.data) ? payload.data : [];
-			const matchingMap = buildMatchingMap(aaModels, [...POPULAR_MODEL_IDS]);
+			const matchingMap = buildMatchingMap(aaModels, openRouterIds);
 
 			const benchmarks = aaModels.flatMap((model) => {
 				const openRouterModelId = matchingMap.get(model.slug);
@@ -56,9 +72,9 @@ export const fetchAndStoreBenchmarks = internalAction({
 					openRouterModelId,
 					aaSlug: model.slug,
 					aaCreatorName: model.model_creator.name,
-					intelligenceIndex: evaluations.artificial_analysis_intelligence_index ?? undefined,
-					codingIndex: evaluations.coding_index ?? undefined,
-					mathIndex: evaluations.math_index ?? undefined,
+				intelligenceIndex: evaluations.artificial_analysis_intelligence_index ?? undefined,
+				codingIndex: evaluations.artificial_analysis_coding_index ?? undefined,
+				mathIndex: evaluations.artificial_analysis_math_index ?? undefined,
 					mmluPro: evaluations.mmlu_pro ?? undefined,
 					gpqa: evaluations.gpqa ?? undefined,
 					scicode: evaluations.scicode ?? undefined,
@@ -122,3 +138,5 @@ export const getAllBenchmarks = query({
 		return await ctx.db.query("benchmarks").collect();
 	},
 });
+
+

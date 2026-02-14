@@ -5,9 +5,10 @@ import { cn } from "@/lib/utils";
 import { getModelById, useModelStore, useModels } from "@/stores/model";
 import { useFavoriteModels } from "@/hooks/use-favorite-models";
 import { useUIStore } from "@/stores/ui";
-import { CheckIcon, ChevronDownIcon, SearchIcon } from "@/components/icons";
+import { ChevronDownIcon, SearchIcon } from "@/components/icons";
 import { ModelInfoPanel } from "@/components/model-info-panel";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 function useIsMobile() {
@@ -65,7 +66,7 @@ function ProviderLogo({ providerId, className }: { providerId: string; className
   );
 }
 
-function BrainIcon({ className }: { className?: string }) {
+function ThinkingIcon({ className }: { className?: string }) {
   return (
     <svg
       className={cn("size-3.5", className)}
@@ -77,7 +78,7 @@ function BrainIcon({ className }: { className?: string }) {
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-3.75 5.25m0 0l-3.75-3.75m3.75 3.75V21m-7.5-1.25l3.75-5.25m0 0L8 10.75m3.75 3.75H3"
+        d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"
       />
     </svg>
   );
@@ -102,7 +103,7 @@ function EyeIcon({ className }: { className?: string }) {
   );
 }
 
-function WrenchIcon({ className }: { className?: string }) {
+function ToolIcon({ className }: { className?: string }) {
   return (
     <svg
       className={cn("size-3.5", className)}
@@ -114,7 +115,12 @@ function WrenchIcon({ className }: { className?: string }) {
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 1 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+        d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3.375 19.5h17.25a1.125 1.125 0 0 0 1.125-1.125V5.625a1.125 1.125 0 0 0-1.125-1.125H3.375a1.125 1.125 0 0 0-1.125 1.125v12.75a1.125 1.125 0 0 0 1.125 1.125Z"
       />
     </svg>
   );
@@ -162,9 +168,10 @@ function ModelItem({
   onSelect,
   onHover,
   onInfoClick,
+  onInfoHover,
+  onInfoClear,
   onToggleFavorite,
   dataIndex,
-  isMobile,
 }: {
   model: Model;
   isSelected: boolean;
@@ -173,9 +180,10 @@ function ModelItem({
   onSelect: () => void;
   onHover: () => void;
   onInfoClick: (e: React.MouseEvent) => void;
+  onInfoHover: () => void;
+  onInfoClear: () => void;
   onToggleFavorite: (e: React.MouseEvent) => void;
   dataIndex: number;
-  isMobile: boolean;
 }) {
   const hasVision = model.modality?.includes("image");
   const hasReasoning = model.reasoning;
@@ -184,125 +192,92 @@ function ModelItem({
     <div
       data-index={dataIndex}
       onClick={onSelect}
-      onMouseEnter={onHover}
+      onMouseEnter={() => { onHover(); onInfoClear(); }}
       onKeyDown={(e) => e.key === "Enter" && onSelect()}
       role="option"
       tabIndex={0}
       aria-selected={isSelected}
       className={cn(
-        "group relative flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left outline-none transition-all duration-200 ease-out md:py-2.5",
-        "min-h-[44px] md:min-h-0",
-        isHighlighted
-          ? "bg-accent/90 shadow-sm"
-          : "hover:bg-accent/50 active:bg-accent/70",
-        isSelected && "bg-accent/60",
+        "group relative flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left outline-none transition-all duration-150 ease-out",
+        isHighlighted && !isSelected && "bg-accent/60",
+        !isHighlighted && !isSelected && "hover:bg-accent/40 active:bg-accent/60",
+        isSelected && "bg-accent/40",
       )}
     >
-      <ProviderLogo providerId={model.logoId} className="size-5 shrink-0" />
+      <ProviderLogo providerId={model.logoId} className="size-6 shrink-0" />
 
       <span className={cn(
-        "flex-1 truncate text-[13px] font-medium tracking-tight transition-colors duration-150",
+        "min-w-0 flex-1 truncate text-sm font-semibold leading-tight tracking-tight transition-colors duration-150",
         isSelected ? "text-foreground" : "text-foreground/90 group-hover:text-foreground",
       )}>
         {model.name}
       </span>
 
-       <div className="flex items-center gap-1.5">
-         {hasReasoning && (
-           <span
-             className="flex size-5 items-center justify-center rounded-md bg-amber-500/15 text-amber-500 transition-transform duration-150 group-hover:scale-105"
-             title="Reasoning capable"
-           >
-             <BrainIcon className="size-3" />
-           </span>
-         )}
-         {hasVision && (
-           <span
-             className="flex size-5 items-center justify-center rounded-md bg-sky-500/15 text-sky-500 transition-transform duration-150 group-hover:scale-105"
-             title="Vision capable"
-           >
-             <EyeIcon className="size-3" />
-           </span>
-         )}
-         {model.toolCall && (
-           <span
-             className="flex size-5 items-center justify-center rounded-md bg-violet-500/15 text-violet-500 transition-transform duration-150 group-hover:scale-105"
-             title="Tool use capable"
-           >
-             <WrenchIcon className="size-3" />
-           </span>
-         )}
-         {model.isFree && (
-          <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-500">
+      <div className="flex shrink-0 items-center gap-1.5">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(e);
+          }}
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-lg transition-all duration-150",
+            isFavorite
+              ? "text-amber-400 hover:text-amber-300"
+              : "text-muted-foreground/20 hover:text-amber-400 opacity-0 group-hover:opacity-100",
+          )}
+          title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+        >
+          <StarIcon filled={isFavorite} className="size-4" />
+        </button>
+
+        {model.isFree && (
+          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-tight tracking-wide text-emerald-500">
             Free
           </span>
         )}
 
-          {isMobile ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onInfoClick(e);
-              }}
-              className={cn(
-                "flex size-5 items-center justify-center rounded-md transition-all duration-150 md:size-5 md:rounded-md",
-                "text-muted-foreground/30 opacity-100 active:text-foreground md:opacity-0 md:group-hover:opacity-100 hover:text-foreground hover:scale-110",
-              )}
-              title="Model info"
-            >
-              <InfoIcon className="size-3" />
-            </button>
-          ) : (
-            <HoverCard>
-              <HoverCardTrigger delay={300}>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onInfoClick(e);
-                  }}
-                  className={cn(
-                    "flex size-5 items-center justify-center rounded-md transition-all duration-150 md:size-5 md:rounded-md",
-                    "text-muted-foreground/30 opacity-100 active:text-foreground md:opacity-0 md:group-hover:opacity-100 hover:text-foreground hover:scale-110",
-                  )}
-                  title="Model info"
-                >
-                  <InfoIcon className="size-3" />
-                </button>
-              </HoverCardTrigger>
-              <HoverCardContent
-                align="start"
-                side="right"
-                sideOffset={8}
-                className="w-auto bg-transparent p-0 shadow-none ring-0"
-              >
-                <div data-model-info-panel>
-                  <ModelInfoPanel model={model} />
-                </div>
-              </HoverCardContent>
-            </HoverCard>
+        <TooltipProvider delay={100}>
+          {hasVision && (
+            <Tooltip>
+              <TooltipTrigger render={<span />} className="flex size-6 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400">
+                <EyeIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6} positionerClassName="z-[10000]">Vision</TooltipContent>
+            </Tooltip>
           )}
+          {hasReasoning && (
+            <Tooltip>
+              <TooltipTrigger render={<span />} className="flex size-6 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
+                <ThinkingIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6} positionerClassName="z-[10000]">Reasoning</TooltipContent>
+            </Tooltip>
+          )}
+          {model.toolCall && (
+            <Tooltip>
+              <TooltipTrigger render={<span />} className="flex size-6 items-center justify-center rounded-lg bg-violet-500/15 text-violet-400">
+                <ToolIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6} positionerClassName="z-[10000]">Tool Use</TooltipContent>
+            </Tooltip>
+          )}
+        </TooltipProvider>
 
-          <button
-            type="button"
-            onClick={onToggleFavorite}
-            className={cn(
-              "flex size-8 items-center justify-center rounded-lg transition-all duration-150 md:size-5 md:rounded-md",
-              isFavorite
-                ? "text-amber-400 hover:text-amber-300 hover:scale-110"
-                : "text-muted-foreground/30 opacity-100 active:text-amber-400 md:opacity-0 md:group-hover:opacity-100 hover:text-amber-400 hover:scale-110",
-            )}
-            title={isFavorite ? "Remove from favorites" : "Add to favorites"}
-          >
-            <StarIcon filled={isFavorite} className="size-4 md:size-3.5" />
-          </button>
-
-        {isSelected && (
-          <span className="flex size-8 items-center justify-center text-primary md:size-5">
-            <CheckIcon className="size-5 md:size-4" />
-          </span>
-        )}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onInfoClick(e);
+          }}
+          onMouseEnter={(e) => {
+            e.stopPropagation();
+            onInfoHover();
+          }}
+          className="flex size-6 items-center justify-center rounded-md text-muted-foreground/40 transition-all duration-150 hover:text-foreground hover:bg-accent/80"
+        >
+          <InfoIcon className="size-3.5" />
+        </button>
       </div>
     </div>
   );
@@ -330,6 +305,20 @@ export function ModelSelector({
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, openAbove: false });
   const [hasEverOpened, setHasEverOpened] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [hoveredInfoModel, setHoveredInfoModel] = useState<Model | null>(null);
+
+  const infoHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showInfoPanel = useCallback((model: Model) => {
+    if (infoHoverTimerRef.current) clearTimeout(infoHoverTimerRef.current);
+    infoHoverTimerRef.current = setTimeout(() => setHoveredInfoModel(model), 250);
+  }, []);
+
+  const hideInfoPanel = useCallback(() => {
+    if (infoHoverTimerRef.current) clearTimeout(infoHoverTimerRef.current);
+    infoHoverTimerRef.current = null;
+    setHoveredInfoModel(null);
+  }, []);
 
   const isMobile = useIsMobile();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -400,13 +389,13 @@ export function ModelSelector({
   }, [filteredModels]);
 
   useEffect(() => {
-    setHighlightedIndex(0);
+    setHighlightedIndex(-1);
   }, [deferredQuery, selectedProvider, showFavoritesOnly]);
 
   const calculateDropdownPosition = useCallback(() => {
     if (!triggerRef.current || isMobile) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    const dropdownHeight = 480;
+    const dropdownHeight = 520;
     const spaceAbove = rect.top;
     const spaceBelow = window.innerHeight - rect.bottom;
     
@@ -440,7 +429,7 @@ export function ModelSelector({
     });
     
     setQuery("");
-    setHighlightedIndex(0);
+    setHighlightedIndex(-1);
     setSelectedProvider(null);
     setShowFavoritesOnly(favorites.size > 0);
     
@@ -453,8 +442,9 @@ export function ModelSelector({
     flushSync(() => {
       setVisible(false);
     });
+    hideInfoPanel();
     triggerRef.current?.focus();
-  }, []);
+  }, [hideInfoPanel]);
 
   const handleSelect = useCallback(
     (modelId: string) => {
@@ -479,11 +469,11 @@ export function ModelSelector({
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          setHighlightedIndex((prev) => (prev < flatList.length - 1 ? prev + 1 : prev));
+          setHighlightedIndex((prev) => (prev < flatList.length - 1 ? Math.max(0, prev + 1) : prev));
           break;
         case "ArrowUp":
           e.preventDefault();
-          setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : prev));
+          setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
           break;
         case "Enter":
           e.preventDefault();
@@ -513,6 +503,12 @@ export function ModelSelector({
       selectedElement.scrollIntoView({ block: "nearest" });
     }
   }, [highlightedIndex, open]);
+
+  useEffect(() => {
+    return () => {
+      if (infoHoverTimerRef.current) clearTimeout(infoHoverTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -686,7 +682,7 @@ export function ModelSelector({
                 </div>
               )}
 
-              <div ref={listRef} className="flex-1 space-y-1 overflow-y-auto overscroll-contain p-3">
+              <div ref={listRef} className="flex-1 space-y-1 overflow-y-auto overscroll-contain p-3 scrollbar-thin">
                 {isLoading ? (
                   <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
                     Loading models...
@@ -730,9 +726,10 @@ export function ModelSelector({
                       onSelect={() => handleSelect(model.id)}
                       onHover={() => setHighlightedIndex(index)}
                       onInfoClick={() => onInfoOpen?.(model)}
+                      onInfoHover={() => {}}
+                      onInfoClear={() => {}}
                       onToggleFavorite={(e) => handleToggleFavorite(e, model.id)}
                       dataIndex={index}
-                      isMobile={isMobile}
                     />
                   ))
                 )}
@@ -768,15 +765,23 @@ export function ModelSelector({
               position: 'fixed',
               top: dropdownPosition.top,
               left: dropdownPosition.left,
-              height: Math.min(480, window.innerHeight - 100),
             }}
             className={cn(
-              "z-[9999] flex w-[420px] rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl",
-              dropdownPosition.openAbove ? "origin-bottom-left" : "origin-top-left",
+              "z-[9999] flex items-start",
               "transition-all duration-150 ease-out",
               visible 
                 ? "scale-100 opacity-100" 
                 : "scale-95 opacity-0 pointer-events-none",
+              dropdownPosition.openAbove ? "origin-bottom-left" : "origin-top-left",
+            )}
+            onMouseLeave={hideInfoPanel}
+          >
+          <div
+            style={{ 
+              height: Math.min(520, window.innerHeight - 80),
+            }}
+            className={cn(
+              "flex w-[480px] rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl",
             )}
             role="listbox"
             aria-label="Models"
@@ -860,7 +865,7 @@ export function ModelSelector({
                 )}
               </div>
 
-              <div ref={listRef} className="flex-1 space-y-0.5 overflow-y-auto overscroll-contain p-2">
+              <div ref={listRef} onMouseLeave={() => setHighlightedIndex(-1)} className="flex-1 space-y-0.5 overflow-y-auto overscroll-contain p-2 scrollbar-thin">
                 {isLoading ? (
                   <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                     Loading models...
@@ -904,9 +909,10 @@ export function ModelSelector({
                       onSelect={() => handleSelect(model.id)}
                       onHover={() => setHighlightedIndex(index)}
                       onInfoClick={() => onInfoOpen?.(model)}
+                       onInfoHover={() => showInfoPanel(model)}
+                       onInfoClear={hideInfoPanel}
                       onToggleFavorite={(e) => handleToggleFavorite(e, model.id)}
                       dataIndex={index}
-                      isMobile={isMobile}
                     />
                   ))
                 )}
@@ -943,6 +949,12 @@ export function ModelSelector({
                 </span>
               </div>
             </div>
+          </div>
+          {hoveredInfoModel && (
+            <div className="ml-2" data-model-info-panel>
+              <ModelInfoPanel model={hoveredInfoModel} />
+            </div>
+          )}
           </div>
         ),
         document.body

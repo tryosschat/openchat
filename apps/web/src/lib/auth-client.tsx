@@ -18,55 +18,10 @@ import type {ReactNode} from "react";
 
 
 /**
- * In-memory-only storage adapter for session data.
- *
- * This reduces XSS token theft risk since tokens are no longer persisted in localStorage
- * (a well-known, trivially accessible target for injected scripts). While in-memory storage
- * is not immune to XSS, it eliminates persistence and narrows the attack surface.
- * The actual session is maintained via HttpOnly cookies on the server.
- *
- * This also prevents the infinite loop caused by crossDomainClient's $sessionSignal
- * notification by deduplicating writes when the value hasn't changed.
- *
- * Trade-off: Sessions won't persist across page reloads within the same tab,
- * but the HttpOnly cookie will re-establish the session automatically.
- */
-const inMemoryStorage = {
-  _store: new Map<string, string>(),
-
-  setItem: (key: string, value: string) => {
-    const cached = inMemoryStorage._store.get(key);
-    // Only write if value actually changed (prevents infinite loops)
-    if (cached === value) {
-      return;
-    }
-    inMemoryStorage._store.set(key, value);
-  },
-
-  getItem: (key: string) => {
-    return inMemoryStorage._store.get(key) ?? null;
-  },
-
-  removeItem: (key: string) => {
-    inMemoryStorage._store.delete(key);
-  },
-};
-
-/**
- * Better Auth client with Convex integration
- *
- * SECURITY: Uses in-memory-only storage to reduce XSS token theft risk.
- * Session tokens are never written to localStorage or sessionStorage,
- * eliminating persistence and narrowing the attack surface.
- * The actual authentication is maintained via HttpOnly, Secure, SameSite cookies
- * which are inaccessible to JavaScript.
- *
- * The in-memory storage also prevents the infinite session loop caused by
- * crossDomainClient's $sessionSignal notification by deduplicating writes.
+ * Better Auth client with Convex integration.
  */
 export const authClient = createAuthClient({
   baseURL: env.CONVEX_SITE_URL,
-  // Disable aggressive session refetching to prevent API spam
   sessionOptions: {
     refetchOnWindowFocus: false,
     refetchInterval: 0,
@@ -74,11 +29,7 @@ export const authClient = createAuthClient({
   },
   plugins: [
     convexAuthPlugin(),
-    crossDomainClient({
-      storage: inMemoryStorage,
-      // Disable local session cache - we manage caching ourselves
-      disableCache: true,
-    }),
+    crossDomainClient(),
   ],
 });
 
@@ -95,6 +46,13 @@ interface SessionUser {
   name: string;
   image: string | null;
 }
+
+export type InitialAuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  image: string | null;
+} | null;
 
 interface SessionData {
   user: SessionUser | null;
@@ -115,12 +73,20 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  * Non-reactive auth provider that fetches session once and caches it.
  * This prevents the infinite loop caused by $sessionSignal notifications.
  */
-export function StableAuthProvider({ children }: { children: ReactNode }) {
-  const [sessionData, setSessionData] = useState<SessionData>({
-    user: null,
-    session: null,
+export function StableAuthProvider({
+  children,
+  initialUser,
+}: {
+  children: ReactNode;
+  initialUser?: InitialAuthUser;
+}) {
+  const [sessionData, setSessionData] = useState<SessionData>(() => {
+    if (initialUser) {
+      return { user: initialUser, session: null };
+    }
+    return { user: null, session: null };
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialUser);
   const fetchedRef = useRef(false);
   const fetchingRef = useRef(false);
 

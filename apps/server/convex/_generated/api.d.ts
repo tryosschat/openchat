@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as backgroundStream from "../backgroundStream.js";
+import type * as benchmarks from "../benchmarks.js";
 import type * as chats from "../chats.js";
 import type * as config_constants from "../config/constants.js";
 import type * as crons from "../crons.js";
@@ -22,6 +23,7 @@ import type * as lib_billingUtils from "../lib/billingUtils.js";
 import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_dbStats from "../lib/dbStats.js";
 import type * as lib_logger from "../lib/logger.js";
+import type * as lib_model_matching from "../lib/model_matching.js";
 import type * as lib_origins from "../lib/origins.js";
 import type * as lib_profiles from "../lib/profiles.js";
 import type * as lib_rateLimitUtils from "../lib/rateLimitUtils.js";
@@ -46,6 +48,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   backgroundStream: typeof backgroundStream;
+  benchmarks: typeof benchmarks;
   chats: typeof chats;
   "config/constants": typeof config_constants;
   crons: typeof crons;
@@ -58,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   "lib/crypto": typeof lib_crypto;
   "lib/dbStats": typeof lib_dbStats;
   "lib/logger": typeof lib_logger;
+  "lib/model_matching": typeof lib_model_matching;
   "lib/origins": typeof lib_origins;
   "lib/profiles": typeof lib_profiles;
   "lib/rateLimitUtils": typeof lib_rateLimitUtils;

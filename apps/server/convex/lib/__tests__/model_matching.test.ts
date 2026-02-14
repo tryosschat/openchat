@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
 	MANUAL_OVERRIDES,
-	POPULAR_MODEL_IDS,
 	buildMatchingMap,
-	matchAAtoOpenRouter,
 	normalizeSlug,
 	type AAModel,
-} from "../model-matching";
+} from "../model_matching";
 
 function createAAModel(slug: string, creatorSlug: string): AAModel {
 	return {
@@ -33,7 +31,7 @@ describe("normalizeSlug", () => {
 	});
 });
 
-describe("matchAAtoOpenRouter", () => {
+describe("buildMatchingMap", () => {
 	it.each([
 		["claude-3-5-sonnet", "anthropic", "anthropic/claude-3.5-sonnet"],
 		["deepseek-v3", "deepseek", "deepseek/deepseek-chat"],
@@ -42,34 +40,43 @@ describe("matchAAtoOpenRouter", () => {
 		["gemini-2-5-pro", "google", "google/gemini-2.5-pro"],
 		["grok-3", "x-ai", "x-ai/grok-3"],
 	])("matches manual override for %s", (aaSlug, creatorSlug, expected) => {
-		expect(matchAAtoOpenRouter(aaSlug, creatorSlug)).toBe(expected);
+		const map = buildMatchingMap(
+			[createAAModel(aaSlug, creatorSlug)],
+			[expected],
+		);
+		expect(map.get(aaSlug)).toBe(expected);
 	});
 
 	it("matches with normalized fallback when exact slug does not exist", () => {
-		expect(matchAAtoOpenRouter("gemini-2-0-flash-001", "google")).toBe("google/gemini-2.0-flash-001");
+		const map = buildMatchingMap(
+			[createAAModel("gemini-2-0-flash-001", "google")],
+			["google/gemini-2.0-flash-001"],
+		);
+		expect(map.get("gemini-2-0-flash-001")).toBe("google/gemini-2.0-flash-001");
 	});
 
-	it("returns null for unknown models instead of throwing", () => {
-		expect(() => matchAAtoOpenRouter("totally-unknown-model", "unknown")).not.toThrow();
-		expect(matchAAtoOpenRouter("totally-unknown-model", "unknown")).toBeNull();
+	it("returns no match for unknown models", () => {
+		const map = buildMatchingMap(
+			[createAAModel("totally-unknown-model", "unknown")],
+			["openai/gpt-4o"],
+		);
+		expect(map.has("totally-unknown-model")).toBe(false);
 	});
 
-	it("matches every popular model id", () => {
-		const matchedIds = new Set<string>();
+	it("every manual override resolves when its target is in the id set", () => {
+		const allTargetIds = [...new Set(Object.values(MANUAL_OVERRIDES))];
+		const aaModels = Object.entries(MANUAL_OVERRIDES).map(([aaSlug, openRouterId]) =>
+			createAAModel(aaSlug, openRouterId.split("/")[0] ?? ""),
+		);
 
-		for (const [aaSlug, openRouterId] of Object.entries(MANUAL_OVERRIDES)) {
-			const creatorSlug = openRouterId.split("/")[0] ?? "";
-			const result = matchAAtoOpenRouter(aaSlug, creatorSlug);
-			if (result) {
-				matchedIds.add(result);
-			}
+		const map = buildMatchingMap(aaModels, allTargetIds);
+
+		for (const targetId of allTargetIds) {
+			const matched = [...map.values()].includes(targetId);
+			expect(matched, `Expected ${targetId} to be matched by at least one override`).toBe(true);
 		}
-
-		expect([...matchedIds].sort()).toEqual([...POPULAR_MODEL_IDS].sort());
 	});
-});
 
-describe("buildMatchingMap", () => {
 	it("builds an AA slug to OpenRouter id map", () => {
 		const aaModels: AAModel[] = [
 			createAAModel("claude-3-5-sonnet", "anthropic"),

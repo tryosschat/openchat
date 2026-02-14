@@ -93,7 +93,8 @@ export function CircularProgress({
 				y={center}
 				textAnchor="middle"
 				dominantBaseline="central"
-				className={cn("font-semibold", colorClass.replace("text-", "fill-"))}
+				fill="currentColor"
+				className={cn("font-semibold", colorClass)}
 				style={{ fontSize: `${fontSize}px` }}
 			>
 				{`${Math.round(clampedValue)}%`}

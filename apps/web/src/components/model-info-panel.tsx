@@ -44,7 +44,7 @@ function ProviderLogo({
 	);
 }
 
-function BrainIcon({ className }: { className?: string }) {
+function ThinkingIcon({ className }: { className?: string }) {
 	return (
 		<svg
 			className={cn("size-3.5", className)}
@@ -56,7 +56,7 @@ function BrainIcon({ className }: { className?: string }) {
 			<path
 				strokeLinecap="round"
 				strokeLinejoin="round"
-				d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-3.75 5.25m0 0l-3.75-3.75m3.75 3.75V21m-7.5-1.25l3.75-5.25m0 0L8 10.75m3.75 3.75H3"
+				d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"
 			/>
 		</svg>
 	);
@@ -85,7 +85,7 @@ function EyeIcon({ className }: { className?: string }) {
 	);
 }
 
-function WrenchIcon({ className }: { className?: string }) {
+function ToolIcon({ className }: { className?: string }) {
 	return (
 		<svg
 			className={cn("size-3.5", className)}
@@ -97,7 +97,12 @@ function WrenchIcon({ className }: { className?: string }) {
 			<path
 				strokeLinecap="round"
 				strokeLinejoin="round"
-				d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 1 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+				d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3"
+			/>
+			<path
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				d="M3.375 19.5h17.25a1.125 1.125 0 0 0 1.125-1.125V5.625a1.125 1.125 0 0 0-1.125-1.125H3.375a1.125 1.125 0 0 0-1.125 1.125v12.75a1.125 1.125 0 0 0 1.125 1.125Z"
 			/>
 		</svg>
 	);
@@ -131,14 +136,14 @@ function BenchmarkCard({
 	subBenchmarks: { label: string; value: number | undefined }[];
 }) {
 	return (
-		<div className="flex flex-1 flex-col items-center gap-2 rounded-xl bg-muted/50 p-3">
-			<CircularProgress value={indexValue ?? null} size={44} strokeWidth={3} />
-			<span className="text-xs font-semibold text-foreground">{label}</span>
-			<div className="flex w-full flex-col gap-1">
+		<div className="flex flex-1 flex-col items-center gap-1.5 rounded-lg bg-muted/50 p-2">
+			<CircularProgress value={indexValue ?? null} size={36} strokeWidth={3} />
+			<span className="text-[11px] font-semibold text-foreground">{label}</span>
+			<div className="flex w-full flex-col gap-0.5">
 				{subBenchmarks.map((sub) => (
 					<div
 						key={sub.label}
-						className="flex items-center justify-between text-xs"
+						className="flex items-center justify-between text-[10px]"
 					>
 						<span className="text-muted-foreground">{sub.label}</span>
 						<span className="font-medium text-foreground">
@@ -156,6 +161,7 @@ export function ModelInfoPanel({ model, className }: ModelInfoPanelProps) {
 
 	const hasVision = model.modality?.includes("image");
 	const hasReasoning = model.reasoning;
+	const hasFeatures = hasReasoning || hasVision || model.toolCall || model.isFree;
 
 	const evals = benchmark
 		? {
@@ -176,89 +182,83 @@ export function ModelInfoPanel({ model, className }: ModelInfoPanelProps) {
 	return (
 		<div
 			className={cn(
-				"w-[300px] rounded-2xl bg-popover p-4 text-popover-foreground shadow-xl ring-1 ring-foreground/5",
+				"w-[320px] rounded-xl bg-popover p-3.5 text-popover-foreground shadow-xl ring-1 ring-foreground/5",
 				className,
 			)}
 		>
-			<div className="flex items-start gap-3">
+			<div className="flex items-center gap-2.5">
 				<ProviderLogo
 					providerId={model.logoId}
 					className="size-8 shrink-0 rounded-lg"
 				/>
 				<div className="min-w-0 flex-1">
-					<h3 className="truncate text-base font-semibold leading-tight">
+					<h3 className="truncate text-sm font-semibold leading-tight">
 						{model.name}
 					</h3>
-					{model.description && (
-						<p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-							{model.description}
-						</p>
+					<p className="mt-0.5 text-xs text-muted-foreground">
+						{model.provider}
+					</p>
+				</div>
+			</div>
+
+			{hasFeatures && (
+				<div className="mt-3 flex flex-wrap items-center gap-1.5">
+					{hasVision && (
+						<span className="flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-medium text-sky-400">
+							<EyeIcon className="size-3" />
+							Vision
+						</span>
+					)}
+					{hasReasoning && (
+						<span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-400">
+							<ThinkingIcon className="size-3" />
+							Reasoning
+						</span>
+					)}
+					{model.toolCall && (
+						<span className="flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-400">
+							<ToolIcon className="size-3" />
+							Tool Calling
+						</span>
+					)}
+					{model.isFree && (
+						<span className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
+							Free
+						</span>
 					)}
 				</div>
-			</div>
+			)}
 
-			<div className="mt-3 flex items-center gap-1.5">
-				{hasReasoning && (
-					<span
-						className="flex size-6 items-center justify-center rounded-lg bg-amber-500/15 text-amber-500"
-						title="Reasoning capable"
-					>
-						<BrainIcon className="size-3.5" />
-					</span>
-				)}
-				{hasVision && (
-					<span
-						className="flex size-6 items-center justify-center rounded-lg bg-sky-500/15 text-sky-500"
-						title="Vision capable"
-					>
-						<EyeIcon className="size-3.5" />
-					</span>
-				)}
-				{model.toolCall && (
-					<span
-						className="flex size-6 items-center justify-center rounded-lg bg-violet-500/15 text-violet-500"
-						title="Tool use capable"
-					>
-						<WrenchIcon className="size-3.5" />
-					</span>
-				)}
-				{model.isFree && (
-					<span className="rounded-lg bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-500">
-						Free
-					</span>
-				)}
-			</div>
-
-			<div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+			<div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
 				<div>
-					<span className="text-muted-foreground">Provider</span>
-					<p className="font-medium text-foreground">{model.provider}</p>
+					<span className="text-[11px] text-muted-foreground">Provider</span>
+					<p className="text-xs font-medium text-foreground">OpenRouter</p>
 				</div>
 				<div>
-					<span className="text-muted-foreground">Developer</span>
-					<p className="font-medium text-foreground">
+					<span className="text-[11px] text-muted-foreground">Developer</span>
+					<p className="text-xs font-medium text-foreground">
 						{benchmark?.aaCreatorName ?? model.provider}
 					</p>
 				</div>
 			</div>
 
 			{isLoading ? (
-				<div className="mt-4 flex items-center justify-center py-6">
-					<div className="size-5 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-foreground/60" />
+				<div className="mt-3 flex items-center justify-center py-4">
+					<div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-foreground/60" />
 				</div>
 			) : showBenchmarks && evals ? (
-				<div className="mt-4">
+				<div className="mt-3">
 					<div className="mb-2 flex items-baseline justify-between">
 						<span className="text-xs font-semibold text-foreground">
-							Benchmark Performance
+							Benchmarks
 						</span>
 						<a
 							href="https://artificialanalysis.ai"
 							target="_blank"
 							rel="noopener noreferrer"
-							className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+							className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
 						>
-							Data by Artificial Analysis ↗
+							via Artificial Analysis ↗
 						</a>
 					</div>
 
@@ -290,8 +290,8 @@ export function ModelInfoPanel({ model, className }: ModelInfoPanelProps) {
 					</div>
 				</div>
 			) : (
-				<div className="mt-4 flex flex-col items-center gap-1.5 py-4 text-muted-foreground">
-					<TrophyIcon className="size-5 opacity-40" />
+				<div className="mt-3 flex flex-col items-center gap-1 py-3 text-muted-foreground">
+					<TrophyIcon className="size-4 opacity-40" />
 					<span className="text-xs">
 						Benchmarks unavailable for this model
 					</span>

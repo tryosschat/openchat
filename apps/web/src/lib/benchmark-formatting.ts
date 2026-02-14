@@ -38,13 +38,13 @@ export function getBenchmarkColor(score: number | null): string {
 	if (score === null) {
 		return "text-muted-foreground";
 	}
-	if (score >= 70) {
+	if (score >= 30) {
 		return "text-emerald-500";
 	}
-	if (score >= 40) {
+	if (score >= 15) {
 		return "text-amber-500";
 	}
-	return "text-red-500";
+	return "text-rose-500";
 }
 
 /**
