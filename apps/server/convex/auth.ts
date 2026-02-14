@@ -85,11 +85,25 @@ export const createAuth = (
 		// Use Convex site URL as baseURL so OAuth callbacks work correctly
 		baseURL: convexSiteUrl,
 		database: authComponent.adapter(ctx),
-		// TODO: add email verification (requireEmailVerification + sendVerificationEmail)
 		emailAndPassword: {
 			enabled: true,
 			minPasswordLength: 8,
 			maxPasswordLength: 128,
+			// SECURITY: Require verified email to prevent account takeover via
+			// unverified email registration exploiting email-based migration linking (OSS-37)
+			requireEmailVerification: true,
+			sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
+				// TODO: integrate with email provider (e.g., Resend, SendGrid)
+				console.log(`[Auth] Password reset requested for ${user.email}: ${url}`);
+			},
+		},
+		emailVerification: {
+			sendOnSignUp: true,
+			sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
+				// TODO: integrate with email provider (e.g., Resend, SendGrid)
+				// For now, log the verification URL for development/debugging
+				console.log(`[Auth] Verification email for ${user.email}: ${url}`);
+			},
 		},
 		socialProviders: {
 			// Only include GitHub OAuth if credentials are configured

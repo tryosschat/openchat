@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@server/convex/_generated/api";
-import { PencilIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
+import { GitForkIcon, PencilIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import {
@@ -169,16 +169,21 @@ function ChatGroup({
                     autoFocus
                   />
                 ) : (
-                  <span
-                    className="truncate"
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onDoubleClick={(event) => {
-                      onStartEdit(chat._id, chat.title, event);
-                    }}
-                  >
-                    {chat.title}
-                  </span>
-                )}
+                   <>
+                     {chat.forkedFromChatId && (
+                       <GitForkIcon className="size-3.5 shrink-0 text-sidebar-foreground/40" />
+                     )}
+                     <span
+                       className="truncate"
+                       onMouseDown={(event) => event.stopPropagation()}
+                       onDoubleClick={(event) => {
+                         onStartEdit(chat._id, chat.title, event);
+                       }}
+                     >
+                       {chat.title}
+                     </span>
+                   </>
+                 )}
               </SidebarMenuButton>
               <button
                 type="button"
@@ -265,12 +270,12 @@ export function AppSidebar({
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const stored = localStorage.getItem(CHATS_CACHE_KEY);
+      const stored = sessionStorage.getItem(CHATS_CACHE_KEY);
       if (stored && !cachedChatsRef.current) {
         cachedChatsRef.current = JSON.parse(stored);
       }
     } catch (e) {
-      console.warn("Failed to load chats from localStorage:", e);
+      console.warn("Failed to load chats from sessionStorage:", e);
     }
   }, []);
 
@@ -278,9 +283,17 @@ export function AppSidebar({
     if (chatsResult?.chats && chatsResult.chats.length > 0) {
       cachedChatsRef.current = chatsResult.chats;
       try {
+<<<<<<< HEAD
+        sessionStorage.setItem(CHATS_CACHE_KEY, JSON.stringify(chatsResult.chats));
+||||||| 54e09ce
         localStorage.setItem(CHATS_CACHE_KEY, JSON.stringify(chatsResult.chats));
+=======
+        // Only cache minimal fields needed for sidebar rendering
+        const minimal = chatsResult.chats.map(({ _id, title, updatedAt }) => ({ _id, title, updatedAt }));
+        sessionStorage.setItem(CHATS_CACHE_KEY, JSON.stringify(minimal));
+>>>>>>> main
       } catch (e) {
-        console.warn("Failed to save chats to localStorage:", e);
+        console.warn("Failed to save chats to sessionStorage:", e);
       }
     }
   }, [chatsResult?.chats]);

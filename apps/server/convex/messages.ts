@@ -1,6 +1,6 @@
 import type { Id } from "./_generated/dataModel";
 import { assertOwnsChat } from "./chats";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { incrementStat, STAT_KEYS } from "./lib/dbStats";
@@ -149,8 +149,15 @@ export const list = query({
 			// Remove duplicates
 			const uniqueStorageIds = Array.from(new Set(allStorageIds));
 
-			// Fetch URLs in parallel
+			// SECURITY: Verify ownership of all attachment storageIds before generating URLs
+			// Only generate signed URLs for files that belong to the requesting user
+			const verifiedIds = await getVerifiedStorageIds(ctx, uniqueStorageIds, userId);
+
+			// Fetch URLs in parallel — only for verified storageIds
 			const urlPromises = uniqueStorageIds.map(async (storageId) => {
+				if (!verifiedIds.has(storageId)) {
+					return { storageId, url: null };
+				}
 				try {
 					const url = await ctx.storage.getUrl(storageId);
 					return { storageId, url };
@@ -736,6 +743,86 @@ type ErrorData = {
 // Type for message type
 type MessageType = "text" | "error" | "system";
 
+// SECURITY: Maximum attachments per message to prevent abuse
+const MAX_ATTACHMENTS_PER_MESSAGE = 20;
+
+/**
+ * SECURITY: Validate that each attachment's storageId belongs to the authenticated user.
+ * This prevents IDOR attacks where an attacker could reference another user's storageId
+ * to gain access to their files via signed URLs.
+ *
+ * Checks the fileUploads table (by_storage index) to verify:
+ * 1. The storageId exists in fileUploads
+ * 2. The file belongs to the authenticated user
+ * 3. The file has not been soft-deleted
+ */
+async function validateAttachmentOwnership(
+	ctx: MutationCtx | QueryCtx,
+	attachments: Array<{ storageId: Id<"_storage"> }>,
+	userId: Id<"users">,
+): Promise<void> {
+	if (attachments.length === 0) return;
+
+	if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+		throw new Error(
+			`Too many attachments: ${attachments.length}. Maximum is ${MAX_ATTACHMENTS_PER_MESSAGE}.`,
+		);
+	}
+
+	// Validate each attachment's storageId against the fileUploads table
+	for (const attachment of attachments) {
+		const fileUpload = await ctx.db
+			.query("fileUploads")
+			.withIndex("by_storage", (q) => q.eq("storageId", attachment.storageId))
+			.unique();
+
+		if (!fileUpload) {
+			throw new Error(
+				"Unauthorized: attachment references a file that does not exist in your uploads.",
+			);
+		}
+
+		if (fileUpload.userId !== userId) {
+			throw new Error(
+				"Unauthorized: you do not own the referenced attachment file.",
+			);
+		}
+
+		if (fileUpload.deletedAt) {
+			throw new Error(
+				"Attachment references a file that has been deleted.",
+			);
+		}
+	}
+}
+
+/**
+ * SECURITY: Verify attachment ownership for the list query path.
+ * Returns a Set of storageIds that are verified to belong to the user.
+ * StorageIds that fail validation are excluded (non-throwing for read path).
+ */
+async function getVerifiedStorageIds(
+	ctx: QueryCtx,
+	storageIds: Id<"_storage">[],
+	userId: Id<"users">,
+): Promise<Set<string>> {
+	const verified = new Set<string>();
+
+	const checks = storageIds.map(async (storageId) => {
+		const fileUpload = await ctx.db
+			.query("fileUploads")
+			.withIndex("by_storage", (q) => q.eq("storageId", storageId))
+			.unique();
+
+		if (fileUpload && fileUpload.userId === userId && !fileUpload.deletedAt) {
+			verified.add(storageId);
+		}
+	});
+
+	await Promise.all(checks);
+	return verified;
+}
+
 async function insertOrUpdateMessage(
 	ctx: MutationCtx,
 	args: {
@@ -788,6 +875,13 @@ async function insertOrUpdateMessage(
 			`Message content exceeds maximum length of ${MAX_MESSAGE_CONTENT_LENGTH} bytes`,
 		);
 	}
+
+	// SECURITY: Validate attachment ownership before inserting/updating message
+	// This prevents IDOR where a user references another user's storageId
+	if (args.attachments && args.attachments.length > 0 && args.userId) {
+		await validateAttachmentOwnership(ctx, args.attachments, args.userId);
+	}
+
 	let targetId = args.overrideId;
 	if (!targetId && args.clientMessageId) {
 		const existing = await ctx.db
