@@ -16,18 +16,81 @@ type AuthSessionResponse = {
 
 const CONVEX_SITE_URL =
 	process.env.VITE_CONVEX_SITE_URL || process.env.CONVEX_SITE_URL;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const ALLOW_AUTH_COOKIE_FALLBACK = process.env.ALLOW_AUTH_COOKIE_FALLBACK === "true";
+const IS_LOCAL_DEV = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+
+if (IS_PRODUCTION && ALLOW_AUTH_COOKIE_FALLBACK) {
+	throw new Error("ALLOW_AUTH_COOKIE_FALLBACK must not be enabled in production");
+}
+
+function getCookieValue(cookieHeader: string, name: string): string | null {
+	const target = `${name}=`;
+	for (const part of cookieHeader.split(";")) {
+		const trimmed = part.trim();
+		if (!trimmed.startsWith(target)) continue;
+		const rawValue = trimmed.slice(target.length);
+		if (!rawValue) return null;
+		try {
+			return decodeURIComponent(rawValue);
+		} catch {
+			return rawValue;
+		}
+	}
+	return null;
+}
+
+function isJwtNotExpired(jwt: string): boolean {
+	const segments = jwt.split(".");
+	if (segments.length !== 3) return false;
+	const payloadSegment = segments[1];
+	if (!payloadSegment) return false;
+
+	try {
+		const payload = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8")) as {
+			exp?: unknown;
+		};
+		if (typeof payload.exp !== "number") return false;
+		return payload.exp * 1000 > Date.now();
+	} catch {
+		return false;
+	}
+}
 
 export async function getConvexAuthToken(request: Request): Promise<string | null> {
-	if (!CONVEX_SITE_URL) return null;
 	const cookie = request.headers.get("cookie");
 	if (!cookie) return null;
 
-	const response = await fetch(`${CONVEX_SITE_URL}/api/auth/convex/token`, {
-		headers: { cookie },
-	});
-	if (!response.ok) return null;
-	const data = (await response.json()) as { token?: string } | null;
-	return data?.token ?? null;
+	if (CONVEX_SITE_URL) {
+		try {
+			const response = await fetch(`${CONVEX_SITE_URL}/api/auth/convex/token`, {
+				headers: { cookie },
+			});
+			if (response.ok) {
+				let data: { token?: string } | null = null;
+				try {
+					data = (await response.json()) as { token?: string } | null;
+				} catch {
+					return null;
+				}
+				if (data?.token) return data.token;
+				return null;
+			}
+			if (response.status >= 400 && response.status < 500) {
+				return null;
+			}
+			if (!IS_LOCAL_DEV) return null;
+		} catch {
+			if (!IS_LOCAL_DEV) return null;
+		}
+	}
+
+	if (!IS_LOCAL_DEV) return null;
+	const fallbackToken = getCookieValue(cookie, "better-auth.convex_jwt");
+	if (!fallbackToken || !isJwtNotExpired(fallbackToken)) {
+		return null;
+	}
+	return fallbackToken;
 }
 
 /**

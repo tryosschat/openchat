@@ -74,6 +74,12 @@ export const cleanupSoftDeletedRecords = internalMutation({
 		const retentionDays = args.retentionDays ?? 90;
 		const batchSize = args.batchSize ?? 100;
 		const dryRun = args.dryRun ?? false;
+		if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) {
+			throw new Error("retentionDays must be between 1 and 3650");
+		}
+		if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 1000) {
+			throw new Error("batchSize must be between 1 and 1000");
+		}
 
 		// Calculate cutoff date
 		const cutoffDate = Date.now() - retentionDays * 24 * 60 * 60 * 1000;

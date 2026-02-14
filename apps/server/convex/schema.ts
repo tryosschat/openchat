@@ -262,8 +262,9 @@ export default defineSchema({
 			enableWebSearch: v.optional(v.boolean()),
 			supportsToolCalls: v.optional(v.boolean()),
 			maxSteps: v.optional(v.number()),
-			jonMode: v.optional(v.boolean()),
+			// Deprecated: retained in schema for backward compatibility with existing documents
 			dynamicPrompt: v.optional(v.boolean()),
+			jonMode: v.optional(v.boolean()),
 		})),
 		content: v.string(),
 		reasoning: v.optional(v.string()),

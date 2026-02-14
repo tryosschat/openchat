@@ -51,11 +51,11 @@ export const Route = createFileRoute("/api/typing")({
 						return json({ ok: true });
 					}
 
-				await redis.typing.set(chatId, convexUserId, !!isTyping);
-				return json({ ok: true });
-			} catch (error) {
-				console.error("[Typing API POST] Error:", error);
-				return json({ error: "Failed to update typing status" }, { status: 500 });
+					await redis.typing.set(chatId, convexUserId, !!isTyping);
+					return json({ ok: true });
+				} catch (error) {
+					console.error("[Typing API POST] Error:", error);
+					return json({ error: "Failed to update typing status" }, { status: 500 });
 				}
 			},
 
@@ -99,10 +99,10 @@ export const Route = createFileRoute("/api/typing")({
 
 					const users = await redis.typing.getUsers(chatId);
 					return json({ users });
-			} catch (error) {
-				console.error("[Typing API GET] Error:", error);
-				return json({ error: "Failed to get typing status" }, { status: 500 });
-			}
+				} catch (error) {
+					console.error("[Typing API GET] Error:", error);
+					return json({ error: "Failed to get typing status" }, { status: 500 });
+				}
 			},
 		},
 	},

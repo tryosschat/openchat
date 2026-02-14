@@ -427,28 +427,37 @@ export function AppSidebar({
         return;
       }
 
-		const generatedTitle = await convexClient.action(api.chats.generateTitle, {
-			userId: convexUser._id,
-			seedText: seedText.trim().slice(0, 300),
-			length: chatTitleLength,
-			provider: activeProvider,
-		});
-
+      const generatedTitle = await convexClient.action(api.chats.generateTitle, {
+        userId: convexUser._id,
+        seedText: seedText.trim().slice(0, 300),
+        length: chatTitleLength,
+        provider: activeProvider,
+      });
       if (!generatedTitle) {
-        toast.error("Unable to generate a new chat name.");
+        if (activeProvider === "openrouter") {
+          const hasOpenRouterKey = await convexClient.query(api.users.hasOpenRouterKey, {
+            userId: convexUser._id,
+          });
+          if (!hasOpenRouterKey) {
+            toast.error("Connect your OpenRouter API key to generate titles with this provider.");
+            return;
+          }
+        }
+        toast.error("Could not generate a chat title right now. Try again.");
         return;
       }
 
-      await convexClient.mutation(api.chats.setTitle, {
+      await convexClient.mutation(api.chats.setGeneratedTitle, {
         chatId: chatId as Id<"chats">,
         userId: convexUser._id,
         title: generatedTitle,
-        updateUpdatedAt: false,
+        force: true,
       });
     } catch (error) {
       console.warn("[Chat] Title regeneration failed:", error);
-      if (error instanceof Error && error.name === "RateLimitError") {
-        toast.error(error.message);
+      const message = error instanceof Error ? error.message : "";
+      if (message.toLowerCase().includes("too many title generations")) {
+        toast.error("Too many title generations. Please try again later.");
       } else {
         toast.error("Failed to regenerate chat name");
       }
