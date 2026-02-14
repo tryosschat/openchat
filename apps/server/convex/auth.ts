@@ -94,15 +94,20 @@ export const createAuth = (
 			requireEmailVerification: true,
 			sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
 				// TODO: integrate with email provider (e.g., Resend, SendGrid)
-				console.log(`[Auth] Password reset requested for ${user.email}: ${url}`);
+				// SECURITY: Never log the full URL — it contains a one-time token (OSS-63)
+				const redactedUrl = new URL(url);
+				redactedUrl.search = "";
+				console.log(`[Auth] Password reset requested for ${user.email}: ${redactedUrl.toString()} (token redacted)`);
 			},
 		},
 		emailVerification: {
 			sendOnSignUp: true,
 			sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
 				// TODO: integrate with email provider (e.g., Resend, SendGrid)
-				// For now, log the verification URL for development/debugging
-				console.log(`[Auth] Verification email for ${user.email}: ${url}`);
+				// SECURITY: Never log the full URL — it contains a one-time token (OSS-63)
+				const redactedUrl = new URL(url);
+				redactedUrl.search = "";
+				console.log(`[Auth] Verification email for ${user.email}: ${redactedUrl.toString()} (token redacted)`);
 			},
 		},
 		socialProviders: {
