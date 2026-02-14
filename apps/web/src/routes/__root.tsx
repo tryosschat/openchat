@@ -6,6 +6,8 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { Providers } from "../providers";
 import { SidebarInset, SidebarProvider } from "../components/ui/sidebar";
 import { NavigationProgress } from "../components/navigation-progress";
@@ -15,8 +17,42 @@ import { usePostHogPageView } from "../providers/posthog";
 import { convexClient } from "../lib/convex";
 import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
+import type { InitialAuthUser } from "../lib/auth-client";
 
 import appCss from "../styles.css?url";
+
+const CONVEX_SITE_URL = import.meta.env.VITE_CONVEX_SITE_URL;
+
+const getSessionOnServer = createServerFn({ method: "GET" }).handler(
+  async () => {
+    if (!CONVEX_SITE_URL) return null;
+    try {
+      const request = getRequest();
+      const cookie = request.headers.get("cookie");
+      if (!cookie) return null;
+
+      const response = await fetch(`${CONVEX_SITE_URL}/api/auth/session`, {
+        headers: { cookie },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as {
+        user?: { id: string; email: string; name: string; image?: string | null } | null;
+      } | null;
+      if (!data?.user) return null;
+
+      return {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name || data.user.email.split("@")[0] || "User",
+        image: data.user.image ?? null,
+      };
+    } catch {
+      return null;
+    }
+  },
+);
 
 const SITE_URL = "https://osschat.dev";
 const SITE_NAME = "osschat";
@@ -24,6 +60,10 @@ const SITE_DESCRIPTION = "Open source AI chat with 350+ models. Access GPT-4, Cl
 const SITE_TAGLINE = "One interface. Every AI model.";
 
 export const Route = createRootRoute({
+  beforeLoad: async () => {
+    const initialUser = await getSessionOnServer();
+    return { initialUser: initialUser as InitialAuthUser };
+  },
   head: () => ({
     meta: [
       // Basic
@@ -120,6 +160,8 @@ export const Route = createRootRoute({
       {
         src: "https://assets.onedollarstats.com/stonks.js",
         defer: true,
+        crossOrigin: "anonymous",
+        integrity: "sha384-JKNAwAZy8iZWcJrexWvQf3rNcosuH0th/rwqZoiM84ea7fMGTt2eq8ddZb//nd9H",
       },
     ],
   }),
@@ -128,9 +170,10 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  const { initialUser } = Route.useRouteContext();
   return (
     <RootDocument>
-      <Providers>
+      <Providers initialUser={initialUser}>
         <AppShell />
       </Providers>
     </RootDocument>

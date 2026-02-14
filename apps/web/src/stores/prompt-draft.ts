@@ -2,15 +2,34 @@ import { create } from "zustand";
 import { createJSONStorage, devtools, persist } from "zustand/middleware";
 
 /**
+ * Store for persisting prompt drafts within the current browser session.
+ *
+<<<<<<< HEAD
+ * Uses sessionStorage instead of localStorage to limit exposure of sensitive
+ * chat content — data is scoped to the tab/session and not accessible after
+ * the browser session ends.
+||||||| 54e09ce
  * Store for persisting prompt drafts across page reloads.
+=======
+ * Security: Uses sessionStorage instead of localStorage to limit exposure
+ * of sensitive draft content. Drafts are automatically cleared when the
+ * browser tab is closed, reducing the risk of exfiltration via XSS or
+ * compromised browser profiles.
+>>>>>>> main
  *
  * Non-annoying approach:
  * - Drafts are saved per-chat (or "global" for new chat input)
  * - Drafts are automatically cleared when a message is sent
+<<<<<<< HEAD
+ * - Old drafts are cleaned up after 7 days to prevent storage bloat
+||||||| 54e09ce
  * - Old drafts are cleaned up after 7 days to prevent localStorage bloat
+=======
+ * - Old drafts are cleaned up after 24 hours as a defensive measure
+>>>>>>> main
  */
 
-const DRAFT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const DRAFT_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours (session-scoped, defensive expiry)
 const GLOBAL_DRAFT_KEY = "__global__";
 
 interface PromptDraft {
@@ -115,7 +134,7 @@ export const usePromptDraftStore = create<PromptDraftState>()(
 			}),
 			{
 				name: "openchat-prompt-drafts",
-				storage: createJSONStorage(() => localStorage),
+				storage: createJSONStorage(() => sessionStorage),
 			},
 		),
 		{ name: "prompt-draft-store" },

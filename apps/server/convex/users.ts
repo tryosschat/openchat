@@ -34,6 +34,28 @@ const userWithProfileDoc = v.object({
 	hasProfile: v.boolean(),
 });
 
+// Public-safe user DTO — excludes encrypted secrets (e.g. encryptedOpenRouterKey).
+// Client-facing queries must use this validator instead of userWithProfileDoc.
+const publicUserDoc = v.object({
+	_id: v.id("users"),
+	_creationTime: v.number(),
+	externalId: v.string(),
+	email: v.optional(v.string()),
+	name: v.optional(v.string()),
+	avatarUrl: v.optional(v.string()),
+	hasOpenRouterKey: v.boolean(),
+	fileUploadCount: v.number(),
+	aiUsageCents: v.optional(v.number()),
+	aiUsageDate: v.optional(v.string()),
+	banned: v.optional(v.boolean()),
+	bannedAt: v.optional(v.number()),
+	banReason: v.optional(v.string()),
+	banExpiresAt: v.optional(v.number()),
+	createdAt: v.number(),
+	updatedAt: v.number(),
+	hasProfile: v.boolean(),
+});
+
 import { DAILY_AI_LIMIT_CENTS, getCurrentDateKey } from "./lib/billingUtils";
 
 export const ensure = mutation({
@@ -72,10 +94,16 @@ export const ensure = mutation({
 
 		// MIGRATION: Link WorkOS users to Better Auth by email
 		// Uses .first() since duplicate emails may exist from prior migrations
+<<<<<<< HEAD
 		// SECURITY: Only link if the caller's email is verified to prevent account takeover
 		// via unverified email registration (see OSS-37)
 		const isEmailVerified = identity.emailVerified ?? false;
 		if (!existing && args.email && isEmailVerified && Date.now() < EMAIL_LINK_MIGRATION_DEADLINE_MS) {
+||||||| 54e09ce
+		if (!existing && args.email) {
+=======
+		if (!existing && args.email && Date.now() < EMAIL_LINK_MIGRATION_DEADLINE_MS) {
+>>>>>>> main
 			const existingByEmail = await ctx.db
 				.query("users")
 				.withIndex("by_email", (q) => q.eq("email", args.email))
@@ -196,7 +224,7 @@ export const getByExternalId = query({
 	args: {
 		externalId: v.string(),
 	},
-	returns: v.union(userWithProfileDoc, v.null()),
+	returns: v.union(publicUserDoc, v.null()),
 	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity || identity.subject !== args.externalId) return null;
@@ -212,6 +240,8 @@ export const getByExternalId = query({
 		const profile = await getProfileByUserId(ctx, user._id);
 
 		// Return merged data with migration fallback
+		// NOTE: encryptedOpenRouterKey is intentionally excluded from this public query.
+		// Use getByExternalIdInternal for server-side access to encrypted secrets.
 		return {
 			_id: user._id,
 			_creationTime: user._creationTime,
@@ -220,6 +250,49 @@ export const getByExternalId = query({
 			// Profile fields: prefer profile data, fall back to user data for migration
 			name: profile?.name ?? user.name,
 			avatarUrl: profile?.avatarUrl ?? user.avatarUrl,
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
 			fileUploadCount: profile?.fileUploadCount ?? user.fileUploadCount ?? 0,
 			aiUsageCents: user.aiUsageCents,
 			aiUsageDate: user.aiUsageDate,
@@ -277,7 +350,7 @@ export const getByExternalIdInternal = internalQuery({
 		args: {
 			userId: v.id("users"),
 		},
-		returns: v.union(userWithProfileDoc, v.null()),
+		returns: v.union(publicUserDoc, v.null()),
 		handler: async (ctx, args) => {
 			const userId = await requireAuthUserId(ctx, args.userId);
 			const user = await ctx.db.get(userId);
@@ -287,6 +360,8 @@ export const getByExternalIdInternal = internalQuery({
 		const profile = await getProfileByUserId(ctx, user._id);
 
 		// Return merged data with migration fallback
+		// NOTE: encryptedOpenRouterKey is intentionally excluded from this public query.
+		// Use getOpenRouterKeyInternal for server-side access to encrypted secrets.
 		return {
 			_id: user._id,
 			_creationTime: user._creationTime,
@@ -295,6 +370,49 @@ export const getByExternalIdInternal = internalQuery({
 			// Profile fields: prefer profile data, fall back to user data for migration
 			name: profile?.name ?? user.name,
 			avatarUrl: profile?.avatarUrl ?? user.avatarUrl,
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
+			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
 			fileUploadCount: profile?.fileUploadCount ?? user.fileUploadCount ?? 0,
 			aiUsageCents: user.aiUsageCents,
 			aiUsageDate: user.aiUsageDate,

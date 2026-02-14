@@ -38,12 +38,43 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
   return <PHProvider client={posthog}>{children}</PHProvider>;
 }
 
+/**
+ * Query parameter allowlist for analytics.
+ * Only these non-sensitive params are forwarded to PostHog.
+ * Auth tokens (ott, code, state) and other sensitive values are stripped.
+ */
+const SAFE_QUERY_PARAMS = new Set([
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+  "ref",
+]);
+
+/**
+ * Build a sanitized URL that excludes sensitive query parameters.
+ * Returns `origin + pathname` plus any allowlisted params (e.g. UTMs).
+ */
+function getSanitizedUrl(): string {
+  const url = new URL(window.location.href);
+  const sanitized = new URL(url.origin + url.pathname);
+
+  for (const [key, value] of url.searchParams) {
+    if (SAFE_QUERY_PARAMS.has(key)) {
+      sanitized.searchParams.set(key, value);
+    }
+  }
+
+  return sanitized.toString();
+}
+
 // Hook to capture page views (call this in your router)
 export function usePostHogPageView(pathname: string) {
   useEffect(() => {
     if (env.POSTHOG_KEY && posthogInitialized) {
       posthog.capture("$pageview", {
-        $current_url: window.location.href,
+        $current_url: getSanitizedUrl(),
         $pathname: pathname,
       });
     }

@@ -46,25 +46,25 @@ export interface Logger {
 	 * Debug-level logs
 	 * Use for detailed diagnostic information
 	 */
-	debug(message: string, context?: LogContext): void;
+	debug(message: string, context?: LogContext): Promise<void>;
 
 	/**
 	 * Info-level logs
 	 * Use for general informational messages
 	 */
-	info(message: string, context?: LogContext): void;
+	info(message: string, context?: LogContext): Promise<void>;
 
 	/**
 	 * Warning-level logs
 	 * Use for potentially problematic situations
 	 */
-	warn(message: string, context?: LogContext): void;
+	warn(message: string, context?: LogContext): Promise<void>;
 
 	/**
 	 * Error-level logs
 	 * Use for error conditions and exceptions
 	 */
-	error(message: string, error: Error | unknown, context?: LogContext): void;
+	error(message: string, error: Error | unknown, context?: LogContext): Promise<void>;
 }
 
 /**
@@ -86,20 +86,25 @@ const PII_FIELDS = new Set([
 ]);
 
 /**
- * Simple hash function for Convex environment
- * Uses a basic hashing algorithm since crypto module isn't available
+ * Cryptographic hash for PII redaction using SHA-256 via Web Crypto API.
+ * Returns a truncated hex digest that is irreversible for practical purposes.
  */
-function hashValue(value: string): string {
+async function hashValue(value: string): Promise<string> {
 	try {
-		let hash = 0;
-		for (let i = 0; i < value.length; i++) {
-			const char = value.charCodeAt(i);
-			hash = ((hash << 5) - hash) + char;
-			hash = hash & hash; // Convert to 32-bit integer
+		const encoded = new TextEncoder().encode(value);
+		const buffer = encoded.buffer.slice(
+			encoded.byteOffset,
+			encoded.byteOffset + encoded.byteLength,
+		) as ArrayBuffer;
+		const digest = await crypto.subtle.digest("SHA-256", buffer);
+		const hashArray = new Uint8Array(digest);
+		let hex = "";
+		for (const byte of hashArray) {
+			hex += byte.toString(16).padStart(2, "0");
 		}
-		// Convert to positive hex string
-		const hexHash = (hash >>> 0).toString(16);
-		return hexHash.padStart(8, '0').substring(0, 12);
+		// Return first 16 hex chars (64 bits) — sufficient for log deduplication
+		// while remaining irreversible for PII values.
+		return hex.substring(0, 16);
 	} catch {
 		return "hash_error";
 	}
@@ -109,19 +114,19 @@ function hashValue(value: string): string {
  * Sanitize context object by hashing PII fields
  * Recursively processes nested objects
  */
-function sanitizeContext(context: LogContext): LogContext {
+async function sanitizeContext(context: LogContext): Promise<LogContext> {
 	const sanitized: LogContext = {};
 
 	for (const [key, value] of Object.entries(context)) {
 		// Hash PII fields
 		if (PII_FIELDS.has(key) && typeof value === "string") {
-			sanitized[`${key}Hash`] = hashValue(value);
+			sanitized[`${key}Hash`] = await hashValue(value);
 			continue;
 		}
 
 		// Recursively sanitize nested objects
 		if (value && typeof value === "object" && !Array.isArray(value)) {
-			sanitized[key] = sanitizeContext(value as LogContext);
+			sanitized[key] = await sanitizeContext(value as LogContext);
 			continue;
 		}
 
@@ -158,11 +163,11 @@ function formatContext(context: LogContext): string {
  * Use for detailed diagnostic information that helps during development
  * In Convex, all logs are visible in the dashboard regardless of environment
  */
-export function logDebug(message: string, context?: LogContext): void {
+export async function logDebug(message: string, context?: LogContext): Promise<void> {
 	const formattedMessage = formatLogMessage("debug", message, context);
 
 	if (context) {
-		const sanitized = sanitizeContext(context);
+		const sanitized = await sanitizeContext(context);
 		console.debug(formattedMessage, formatContext(sanitized));
 	} else {
 		console.debug(formattedMessage);
@@ -173,11 +178,11 @@ export function logDebug(message: string, context?: LogContext): void {
  * Log information messages
  * Use for general informational messages about application flow
  */
-export function logInfo(message: string, context?: LogContext): void {
+export async function logInfo(message: string, context?: LogContext): Promise<void> {
 	const formattedMessage = formatLogMessage("info", message, context);
 
 	if (context) {
-		const sanitized = sanitizeContext(context);
+		const sanitized = await sanitizeContext(context);
 		console.log(formattedMessage, formatContext(sanitized));
 	} else {
 		console.log(formattedMessage);
@@ -188,11 +193,11 @@ export function logInfo(message: string, context?: LogContext): void {
  * Log warning messages
  * Use for potentially problematic situations that aren't errors
  */
-export function logWarn(message: string, context?: LogContext): void {
+export async function logWarn(message: string, context?: LogContext): Promise<void> {
 	const formattedMessage = formatLogMessage("warn", message, context);
 
 	if (context) {
-		const sanitized = sanitizeContext(context);
+		const sanitized = await sanitizeContext(context);
 		console.warn(formattedMessage, formatContext(sanitized));
 	} else {
 		console.warn(formattedMessage);
@@ -207,11 +212,11 @@ export function logWarn(message: string, context?: LogContext): void {
  * @param error - The error object or unknown value
  * @param context - Additional context about the error
  */
-export function logError(
+export async function logError(
 	message: string,
 	error?: Error | unknown,
 	context?: LogContext
-): void {
+): Promise<void> {
 	const formattedMessage = formatLogMessage("error", message, context);
 
 	// Build error context
@@ -226,7 +231,7 @@ export function logError(
 		errorContext.stack = error.stack;
 	}
 
-	const sanitized = sanitizeContext(errorContext);
+	const sanitized = await sanitizeContext(errorContext);
 	console.error(formattedMessage, formatContext(sanitized));
 }
 
