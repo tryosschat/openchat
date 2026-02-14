@@ -37,7 +37,18 @@ export const createAuth = (
 	if (!convexSiteUrl) {
 		throw new Error("CONVEX_SITE_URL environment variable is not set");
 	}
-	const siteUrl = process.env.SITE_URL || "http://localhost:3000";
+	// SECURITY: Only default to localhost in non-production environments.
+	// In production, SITE_URL must be explicitly set to prevent localhost
+	// from being added to trustedOrigins (see OSS-52).
+	const isProduction = process.env.NODE_ENV === "production";
+	const siteUrl = process.env.SITE_URL || (isProduction ? undefined : "http://localhost:3000");
+	if (isProduction && !process.env.SITE_URL) {
+		console.warn(
+			"[Auth] WARNING: SITE_URL is not set in production. " +
+			"Cross-domain auth (crossDomain plugin) will not have a siteUrl configured. " +
+			"Set SITE_URL to your frontend URL for proper auth functionality."
+		);
+	}
 
 	// Detect if this is a preview environment (explicit opt-in only)
 	// Dev cloud deployments with their own OAuth apps should NOT use oAuthProxy
@@ -53,7 +64,7 @@ export const createAuth = (
 		// Required for Convex compatibility - pass authConfig for JWT configuration
 		convex({ authConfig }),
 		// Enable cross-domain auth for frontend on different domain (localhost:3000 -> convex.site)
-		crossDomain({ siteUrl }),
+		crossDomain({ siteUrl: siteUrl ?? convexSiteUrl }),
 	];
 
 	// Add oAuthProxy plugin for preview environments
