@@ -2,12 +2,25 @@
  * Explicit list of allowed origins for CORS and trusted auth requests.
  * SECURITY: Do NOT use wildcards here - they would allow any app on the
  * wildcard domain to make trusted cross-origin requests.
+ * SECURITY: Localhost origins are only included in non-production environments
+ * to prevent CSRF-like attacks from malicious local applications.
  */
-const ALLOWED_ORIGINS = [
-	"http://localhost:3000",
+const PRODUCTION_ORIGINS = [
 	"https://osschat.dev",
 	"https://www.osschat.dev",
 ];
+
+const DEV_ORIGINS = [
+	"http://localhost:3000",
+];
+
+function getBaseOrigins(): string[] {
+	const isProd = process.env.NODE_ENV === "production";
+	if (isProd) {
+		return [...PRODUCTION_ORIGINS];
+	}
+	return [...DEV_ORIGINS, ...PRODUCTION_ORIGINS];
+}
 
 /**
  * Get all allowed origins including environment-specific URLs.
@@ -16,7 +29,7 @@ const ALLOWED_ORIGINS = [
  * - ALLOWED_ORIGINS: Comma-separated list of additional allowed origins
  */
 export function getAllowedOrigins(): string[] {
-	const origins = [...ALLOWED_ORIGINS];
+	const origins = getBaseOrigins();
 
 	// Add SITE_URL if configured (e.g., for preview deployments)
 	const siteUrl = process.env.SITE_URL;
