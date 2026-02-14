@@ -94,15 +94,16 @@ export const createAuth = (
 			requireEmailVerification: true,
 			sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
 				// TODO: integrate with email provider (e.g., Resend, SendGrid)
-				console.log(`[Auth] Password reset requested for ${user.email}: ${url}`);
+				// SECURITY: Do not log URLs (contain bearer tokens) or emails (PII) — see OSS-48
+				console.log("[Auth] Password reset requested");
 			},
 		},
 		emailVerification: {
 			sendOnSignUp: true,
 			sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
 				// TODO: integrate with email provider (e.g., Resend, SendGrid)
-				// For now, log the verification URL for development/debugging
-				console.log(`[Auth] Verification email for ${user.email}: ${url}`);
+				// SECURITY: Do not log URLs (contain bearer tokens) or emails (PII) — see OSS-48
+				console.log("[Auth] Verification email requested");
 			},
 		},
 		socialProviders: {
