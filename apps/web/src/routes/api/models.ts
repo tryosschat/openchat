@@ -9,621 +9,22 @@ const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_FETCH_TIMEOUT_MS = 10_000;
 const TRUST_PROXY_MODE = process.env.TRUST_PROXY?.trim().toLowerCase();
 
-<<<<<<< HEAD
 /**
  * Basic IPv4/IPv6 format validation.
- * Rejects obviously spoofed or malformed values used in x-forwarded-for.
+ * Rejects obviously spoofed or malformed values used in forwarded headers.
  */
 const IPV4_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
 const IPV6_REGEX = /^[0-9a-fA-F:]+$/;
 
 function isValidIpFormat(ip: string): boolean {
-	return IPV4_REGEX.test(ip) || IPV6_REGEX.test(ip);
+	return IPV4_REGEX.test(ip) || (IPV6_REGEX.test(ip) && ip.includes(":") && ip.length <= 45);
 }
 
-if (TRUST_PROXY_MODE === "true") {
-	console.warn(
-		"[Models API] TRUST_PROXY=true uses x-forwarded-for for rate limiting. " +
-		"This is INSECURE unless the app is behind a trusted reverse proxy that overwrites x-forwarded-for. " +
-		"Prefer TRUST_PROXY=cloudflare or TRUST_PROXY=vercel for production deployments.",
-	);
-}
-
-if (!TRUST_PROXY_MODE) {
-	console.warn("[Models API] TRUST_PROXY is unset; models endpoint will reject requests when IP is unavailable");
-}
-
-if (
-	TRUST_PROXY_MODE &&
-	TRUST_PROXY_MODE !== "cloudflare" &&
-	TRUST_PROXY_MODE !== "vercel" &&
-	TRUST_PROXY_MODE !== "true"
-) {
-	console.warn("[Models API] Unrecognized TRUST_PROXY value; models endpoint will reject requests when IP is unavailable");
-}
-
-const modelsIpRatelimit = upstashRedis
-	? new Ratelimit({
-			redis: upstashRedis,
-			limiter: Ratelimit.slidingWindow(30, "60 s"),
-			prefix: "ratelimit:models:ip",
-		})
-	: null;
-
-async function fetchModelsFromOpenRouter(): Promise<Response> {
-	try {
-		const response = await fetch(OPENROUTER_MODELS_URL, {
-			headers: {
-				Accept: "application/json",
-			},
-			signal: AbortSignal.timeout(OPENROUTER_FETCH_TIMEOUT_MS),
-		});
-
-		if (!response.ok) {
-			return json(
-				{ error: "Upstream service error" },
-				{ status: 502 },
-			);
-		}
-
-		const payload = await response.text();
-
-		if (upstashRedis) {
-			try {
-				await upstashRedis.set(MODELS_CACHE_KEY, payload, {
-					ex: MODELS_CACHE_TTL_SECONDS,
-				});
-			} catch (error) {
-				console.warn("[Models API] Failed to write cache:", error);
-			}
-		}
-
-		return new Response(payload, {
-			status: 200,
-			headers: {
-				"Content-Type": "application/json",
-				"Cache-Control": "no-store",
-			},
-		});
-	} catch (error) {
-		console.warn("[Models API] OpenRouter fetch failed:", error);
-		return json({ error: "Upstream service unavailable" }, { status: 502 });
-	}
-}
-
-function getClientIp(request: Request): string | null {
-	if (!TRUST_PROXY_MODE) {
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "cloudflare") {
-		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		if (cfConnectingIp && isValidIpFormat(cfConnectingIp)) return cfConnectingIp;
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "vercel") {
-		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelForwardedFor) {
-			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first && isValidIpFormat(first)) return first;
-		}
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "true") {
-		// Prefer platform-specific headers that are harder to spoof, as they
-		// are typically set/overwritten by the edge proxy itself.
-		const cfIp = request.headers.get("cf-connecting-ip")?.trim();
-		if (cfIp && isValidIpFormat(cfIp)) return cfIp;
-
-		const vercelIp = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelIp) {
-			const first = vercelIp.split(",")[0]?.trim();
-			if (first && isValidIpFormat(first)) return first;
-		}
-
-		const realIp = request.headers.get("x-real-ip")?.trim();
-		if (realIp && isValidIpFormat(realIp)) return realIp;
-
-		// Fall back to x-forwarded-for only as last resort, with IP validation.
-		// WARNING: This header is user-controlled unless the proxy overwrites it.
-		const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
-		if (forwardedFor) {
-			const first = forwardedFor.split(",")[0]?.trim();
-			if (first && isValidIpFormat(first)) return first;
-||||||| 54e09ce
-=======
-<<<<<<< HEAD
-if (TRUST_PROXY_MODE === "true") {
-	console.warn("[Models API] TRUST_PROXY=true requires x-forwarded-for for rate limiting");
-}
-
-if (!TRUST_PROXY_MODE) {
-	console.warn("[Models API] TRUST_PROXY is unset; models endpoint will reject requests when IP is unavailable");
-}
-
-if (
-	TRUST_PROXY_MODE &&
-	TRUST_PROXY_MODE !== "cloudflare" &&
-	TRUST_PROXY_MODE !== "vercel" &&
-	TRUST_PROXY_MODE !== "true"
-) {
-	console.warn("[Models API] Unrecognized TRUST_PROXY value; models endpoint will reject requests when IP is unavailable");
-}
-
-const modelsIpRatelimit = upstashRedis
-	? new Ratelimit({
-			redis: upstashRedis,
-			limiter: Ratelimit.slidingWindow(30, "60 s"),
-			prefix: "ratelimit:models:ip",
-		})
-	: null;
-
-async function fetchModelsFromOpenRouter(): Promise<Response> {
-	try {
-		const response = await fetch(OPENROUTER_MODELS_URL, {
-			headers: {
-				Accept: "application/json",
-			},
-			signal: AbortSignal.timeout(OPENROUTER_FETCH_TIMEOUT_MS),
-		});
-
-		if (!response.ok) {
-			return json(
-				{ error: "Upstream service error" },
-				{ status: 502 },
-			);
-		}
-
-		const payload = await response.text();
-
-		if (upstashRedis) {
-			try {
-				await upstashRedis.set(MODELS_CACHE_KEY, payload, {
-					ex: MODELS_CACHE_TTL_SECONDS,
-				});
-			} catch (error) {
-				console.warn("[Models API] Failed to write cache:", error);
-			}
-		}
-
-		return new Response(payload, {
-			status: 200,
-			headers: {
-				"Content-Type": "application/json",
-				"Cache-Control": "no-store",
-			},
-		});
-	} catch (error) {
-		console.warn("[Models API] OpenRouter fetch failed:", error);
-		return json({ error: "Upstream service unavailable" }, { status: 502 });
-	}
-}
-
-function getClientIp(request: Request): string | null {
-	if (!TRUST_PROXY_MODE) {
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "cloudflare") {
-		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		return cfConnectingIp || null;
-	}
-
-	if (TRUST_PROXY_MODE === "vercel") {
-		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelForwardedFor) {
-			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-		}
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "true") {
-		const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
-		if (forwardedFor) {
-			const first = forwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-||||||| 54e09ce
-=======
-<<<<<<< HEAD
-if (TRUST_PROXY_MODE === "true") {
-	console.warn("[Models API] TRUST_PROXY=true requires x-forwarded-for for rate limiting");
-}
-
-if (!TRUST_PROXY_MODE) {
-	console.warn("[Models API] TRUST_PROXY is unset; models endpoint will reject requests when IP is unavailable");
-}
-
-if (
-	TRUST_PROXY_MODE &&
-	TRUST_PROXY_MODE !== "cloudflare" &&
-	TRUST_PROXY_MODE !== "vercel" &&
-	TRUST_PROXY_MODE !== "true"
-) {
-	console.warn("[Models API] Unrecognized TRUST_PROXY value; models endpoint will reject requests when IP is unavailable");
-}
-
-const modelsIpRatelimit = upstashRedis
-	? new Ratelimit({
-			redis: upstashRedis,
-			limiter: Ratelimit.slidingWindow(30, "60 s"),
-			prefix: "ratelimit:models:ip",
-		})
-	: null;
-
-async function fetchModelsFromOpenRouter(): Promise<Response> {
-	try {
-		const response = await fetch(OPENROUTER_MODELS_URL, {
-			headers: {
-				Accept: "application/json",
-			},
-			signal: AbortSignal.timeout(OPENROUTER_FETCH_TIMEOUT_MS),
-		});
-
-		if (!response.ok) {
-			return json(
-				{ error: "Upstream service error" },
-				{ status: 502 },
-			);
-		}
-
-		const payload = await response.text();
-
-		if (upstashRedis) {
-			try {
-				await upstashRedis.set(MODELS_CACHE_KEY, payload, {
-					ex: MODELS_CACHE_TTL_SECONDS,
-				});
-			} catch (error) {
-				console.warn("[Models API] Failed to write cache:", error);
-			}
-		}
-
-		return new Response(payload, {
-			status: 200,
-			headers: {
-				"Content-Type": "application/json",
-				"Cache-Control": "no-store",
-			},
-		});
-	} catch (error) {
-		console.warn("[Models API] OpenRouter fetch failed:", error);
-		return json({ error: "Upstream service unavailable" }, { status: 502 });
-	}
-}
-
-function getClientIp(request: Request): string | null {
-	if (!TRUST_PROXY_MODE) {
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "cloudflare") {
-		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		return cfConnectingIp || null;
-	}
-
-	if (TRUST_PROXY_MODE === "vercel") {
-		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelForwardedFor) {
-			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-		}
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "true") {
-		const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
-		if (forwardedFor) {
-			const first = forwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-||||||| 54e09ce
-=======
-<<<<<<< HEAD
-// Basic IPv4 and IPv6 validation to reject obviously spoofed or malformed values.
-const IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
-const IPV6_REGEX = /^[\da-fA-F:]+$/;
-
-function isValidIp(value: string): boolean {
-	if (IPV4_REGEX.test(value)) return true;
-	// Rough IPv6 check: only hex digits and colons, reasonable length
-	if (IPV6_REGEX.test(value) && value.includes(":") && value.length <= 45) return true;
-	return false;
-}
-
-if (TRUST_PROXY_MODE === "true") {
-	console.warn(
-		"[Models API] TRUST_PROXY=true blindly trusts X-Forwarded-For and is vulnerable to " +
-		"IP spoofing if not behind a trusted proxy. Prefer TRUST_PROXY=cloudflare or " +
-		"TRUST_PROXY=vercel for platform-specific secure headers.",
-	);
-}
-
-if (!TRUST_PROXY_MODE) {
-	console.warn("[Models API] TRUST_PROXY is unset; models endpoint will reject requests when IP is unavailable");
-}
-
-if (
-	TRUST_PROXY_MODE &&
-	TRUST_PROXY_MODE !== "cloudflare" &&
-	TRUST_PROXY_MODE !== "vercel" &&
-	TRUST_PROXY_MODE !== "true"
-) {
-	console.warn("[Models API] Unrecognized TRUST_PROXY value; models endpoint will reject requests when IP is unavailable");
-}
-
-const modelsIpRatelimit = upstashRedis
-	? new Ratelimit({
-			redis: upstashRedis,
-			limiter: Ratelimit.slidingWindow(30, "60 s"),
-			prefix: "ratelimit:models:ip",
-		})
-	: null;
-
-async function fetchModelsFromOpenRouter(): Promise<Response> {
-	try {
-		const response = await fetch(OPENROUTER_MODELS_URL, {
-			headers: {
-				Accept: "application/json",
-			},
-			signal: AbortSignal.timeout(OPENROUTER_FETCH_TIMEOUT_MS),
-		});
-
-		if (!response.ok) {
-			return json(
-				{ error: "Upstream service error" },
-				{ status: 502 },
-			);
-		}
-
-		const payload = await response.text();
-
-		if (upstashRedis) {
-			try {
-				await upstashRedis.set(MODELS_CACHE_KEY, payload, {
-					ex: MODELS_CACHE_TTL_SECONDS,
-				});
-			} catch (error) {
-				console.warn("[Models API] Failed to write cache:", error);
-			}
-		}
-
-		return new Response(payload, {
-			status: 200,
-			headers: {
-				"Content-Type": "application/json",
-				"Cache-Control": "no-store",
-			},
-		});
-	} catch (error) {
-		console.warn("[Models API] OpenRouter fetch failed:", error);
-		return json({ error: "Upstream service unavailable" }, { status: 502 });
-	}
-}
-
-function getClientIp(request: Request): string | null {
-	if (!TRUST_PROXY_MODE) {
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "cloudflare") {
-		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		if (cfConnectingIp && isValidIp(cfConnectingIp)) return cfConnectingIp;
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "vercel") {
-		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelForwardedFor) {
-			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first && isValidIp(first)) return first;
-		}
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "true") {
-		// Prefer platform-specific headers that are harder to spoof, then fall
-		// back to the generic X-Forwarded-For only if none are present.
-		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		if (cfConnectingIp && isValidIp(cfConnectingIp)) return cfConnectingIp;
-
-		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelForwardedFor) {
-			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first && isValidIp(first)) return first;
-		}
-
-		const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
-		if (forwardedFor) {
-			const first = forwardedFor.split(",")[0]?.trim();
-			if (first && isValidIp(first)) return first;
-||||||| 54e09ce
-=======
-<<<<<<< HEAD
-if (TRUST_PROXY_MODE === "true") {
-	console.warn("[Models API] TRUST_PROXY=true requires x-forwarded-for for rate limiting");
-}
-
-if (!TRUST_PROXY_MODE) {
-	console.warn("[Models API] TRUST_PROXY is unset; models endpoint will reject requests when IP is unavailable");
-}
-
-if (
-	TRUST_PROXY_MODE &&
-	TRUST_PROXY_MODE !== "cloudflare" &&
-	TRUST_PROXY_MODE !== "vercel" &&
-	TRUST_PROXY_MODE !== "true"
-) {
-	console.warn("[Models API] Unrecognized TRUST_PROXY value; models endpoint will reject requests when IP is unavailable");
-}
-
-const modelsIpRatelimit = upstashRedis
-	? new Ratelimit({
-			redis: upstashRedis,
-			limiter: Ratelimit.slidingWindow(30, "60 s"),
-			prefix: "ratelimit:models:ip",
-		})
-	: null;
-
-async function fetchModelsFromOpenRouter(): Promise<Response> {
-	try {
-		const response = await fetch(OPENROUTER_MODELS_URL, {
-			headers: {
-				Accept: "application/json",
-			},
-			signal: AbortSignal.timeout(OPENROUTER_FETCH_TIMEOUT_MS),
-		});
-
-		if (!response.ok) {
-			return json(
-				{ error: "Upstream service error" },
-				{ status: 502 },
-			);
-		}
-
-		const payload = await response.text();
-
-		if (upstashRedis) {
-			try {
-				await upstashRedis.set(MODELS_CACHE_KEY, payload, {
-					ex: MODELS_CACHE_TTL_SECONDS,
-				});
-			} catch (error) {
-				console.warn("[Models API] Failed to write cache:", error);
-			}
-		}
-
-		return new Response(payload, {
-			status: 200,
-			headers: {
-				"Content-Type": "application/json",
-				"Cache-Control": "no-store",
-			},
-		});
-	} catch (error) {
-		console.warn("[Models API] OpenRouter fetch failed:", error);
-		return json({ error: "Upstream service unavailable" }, { status: 502 });
-	}
-}
-
-function getClientIp(request: Request): string | null {
-	if (!TRUST_PROXY_MODE) {
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "cloudflare") {
-		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		return cfConnectingIp || null;
-	}
-
-	if (TRUST_PROXY_MODE === "vercel") {
-		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelForwardedFor) {
-			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-		}
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "true") {
-||||||| 54e09ce
-=======
-<<<<<<< HEAD
-if (TRUST_PROXY_MODE === "true") {
-	console.warn("[Models API] TRUST_PROXY=true requires x-forwarded-for for rate limiting");
-}
-
-if (!TRUST_PROXY_MODE) {
-	console.warn("[Models API] TRUST_PROXY is unset; models endpoint will reject requests when IP is unavailable");
-}
-
-if (
-	TRUST_PROXY_MODE &&
-	TRUST_PROXY_MODE !== "cloudflare" &&
-	TRUST_PROXY_MODE !== "vercel" &&
-	TRUST_PROXY_MODE !== "true"
-) {
-	console.warn("[Models API] Unrecognized TRUST_PROXY value; models endpoint will reject requests when IP is unavailable");
-}
-
-const modelsIpRatelimit = upstashRedis
-	? new Ratelimit({
-			redis: upstashRedis,
-			limiter: Ratelimit.slidingWindow(30, "60 s"),
-			prefix: "ratelimit:models:ip",
-		})
-	: null;
-
-async function fetchModelsFromOpenRouter(): Promise<Response> {
-	try {
-		const response = await fetch(OPENROUTER_MODELS_URL, {
-			headers: {
-				Accept: "application/json",
-			},
-			signal: AbortSignal.timeout(OPENROUTER_FETCH_TIMEOUT_MS),
-		});
-
-		if (!response.ok) {
-			return json(
-				{ error: "Upstream service error" },
-				{ status: 502 },
-			);
-		}
-
-		const payload = await response.text();
-
-		if (upstashRedis) {
-			try {
-				await upstashRedis.set(MODELS_CACHE_KEY, payload, {
-					ex: MODELS_CACHE_TTL_SECONDS,
-				});
-			} catch (error) {
-				console.warn("[Models API] Failed to write cache:", error);
-			}
-		}
-
-		return new Response(payload, {
-			status: 200,
-			headers: {
-				"Content-Type": "application/json",
-				"Cache-Control": "no-store",
-			},
-		});
-	} catch (error) {
-		console.warn("[Models API] OpenRouter fetch failed:", error);
-		return json({ error: "Upstream service unavailable" }, { status: 502 });
-	}
-}
-
-function getClientIp(request: Request): string | null {
-	if (!TRUST_PROXY_MODE) {
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "cloudflare") {
-		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		return cfConnectingIp || null;
-	}
-
-	if (TRUST_PROXY_MODE === "vercel") {
-		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelForwardedFor) {
-			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-		}
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "true") {
-||||||| 54e09ce
-=======
-<<<<<<< HEAD
 /**
  * TRUSTED_PROXIES: comma-separated list of trusted proxy IPs.
  * Required when TRUST_PROXY=true to prevent x-forwarded-for spoofing.
- * When set, only x-forwarded-for values from requests are accepted if
- * the deployment is explicitly configured to trust the reverse proxy chain.
+ * When set, only x-forwarded-for values are accepted if the deployment is
+ * explicitly configured to trust the reverse proxy chain.
  * Platform-specific modes (cloudflare, vercel) use tamper-resistant headers
  * and do not require this setting.
  */
@@ -640,7 +41,7 @@ if (TRUST_PROXY_MODE === "true" && TRUSTED_PROXY_IPS.size === 0) {
 			"The x-forwarded-for header can be spoofed by clients. " +
 			"Set TRUSTED_PROXIES to a comma-separated list of trusted proxy IPs, " +
 			"or use a platform-specific mode (cloudflare, vercel). " +
-			"Rate limiting will fall back to rejecting requests when client IP cannot be verified.",
+			"Rate limiting will fail closed — requests will be rejected when client IP cannot be verified.",
 	);
 }
 
@@ -717,16 +118,19 @@ function getClientIp(request: Request): string | null {
 		return null;
 	}
 
+	// Platform-specific modes use tamper-resistant headers set by the platform
+	// edge proxy. These cannot be spoofed by end clients.
 	if (TRUST_PROXY_MODE === "cloudflare") {
 		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		return cfConnectingIp || null;
+		if (cfConnectingIp && isValidIpFormat(cfConnectingIp)) return cfConnectingIp;
+		return null;
 	}
 
 	if (TRUST_PROXY_MODE === "vercel") {
 		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
 		if (vercelForwardedFor) {
 			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first) return first;
+			if (first && isValidIpFormat(first)) return first;
 		}
 		return null;
 	}
@@ -739,105 +143,27 @@ function getClientIp(request: Request): string | null {
 			return null;
 		}
 
-||||||| 54e09ce
-=======
-if (TRUST_PROXY_MODE === "true") {
-	console.warn("[Models API] TRUST_PROXY=true requires x-forwarded-for for rate limiting");
-}
+		// Prefer platform-specific headers that are harder to spoof, as they
+		// are typically set/overwritten by the edge proxy itself.
+		const cfIp = request.headers.get("cf-connecting-ip")?.trim();
+		if (cfIp && isValidIpFormat(cfIp)) return cfIp;
 
-if (!TRUST_PROXY_MODE) {
-	console.warn("[Models API] TRUST_PROXY is unset; models endpoint will reject requests when IP is unavailable");
-}
-
-if (
-	TRUST_PROXY_MODE &&
-	TRUST_PROXY_MODE !== "cloudflare" &&
-	TRUST_PROXY_MODE !== "vercel" &&
-	TRUST_PROXY_MODE !== "true"
-) {
-	console.warn("[Models API] Unrecognized TRUST_PROXY value; models endpoint will reject requests when IP is unavailable");
-}
-
-const modelsIpRatelimit = upstashRedis
-	? new Ratelimit({
-			redis: upstashRedis,
-			limiter: Ratelimit.slidingWindow(30, "60 s"),
-			prefix: "ratelimit:models:ip",
-		})
-	: null;
-
-async function fetchModelsFromOpenRouter(): Promise<Response> {
-	try {
-		const response = await fetch(OPENROUTER_MODELS_URL, {
-			headers: {
-				Accept: "application/json",
-			},
-			signal: AbortSignal.timeout(OPENROUTER_FETCH_TIMEOUT_MS),
-		});
-
-		if (!response.ok) {
-			return json(
-				{ error: "Upstream service error" },
-				{ status: 502 },
-			);
+		const vercelIp = request.headers.get("x-vercel-forwarded-for")?.trim();
+		if (vercelIp) {
+			const first = vercelIp.split(",")[0]?.trim();
+			if (first && isValidIpFormat(first)) return first;
 		}
 
-		const payload = await response.text();
+		const realIp = request.headers.get("x-real-ip")?.trim();
+		if (realIp && isValidIpFormat(realIp)) return realIp;
 
-		if (upstashRedis) {
-			try {
-				await upstashRedis.set(MODELS_CACHE_KEY, payload, {
-					ex: MODELS_CACHE_TTL_SECONDS,
-				});
-			} catch (error) {
-				console.warn("[Models API] Failed to write cache:", error);
-			}
-		}
-
-		return new Response(payload, {
-			status: 200,
-			headers: {
-				"Content-Type": "application/json",
-				"Cache-Control": "no-store",
-			},
-		});
-	} catch (error) {
-		console.warn("[Models API] OpenRouter fetch failed:", error);
-		return json({ error: "Upstream service unavailable" }, { status: 502 });
-	}
-}
-
-function getClientIp(request: Request): string | null {
-	if (!TRUST_PROXY_MODE) {
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "cloudflare") {
-		const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-		return cfConnectingIp || null;
-	}
-
-	if (TRUST_PROXY_MODE === "vercel") {
-		const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for")?.trim();
-		if (vercelForwardedFor) {
-			const first = vercelForwardedFor.split(",")[0]?.trim();
-			if (first) return first;
-		}
-		return null;
-	}
-
-	if (TRUST_PROXY_MODE === "true") {
->>>>>>> main
->>>>>>> main
->>>>>>> main
+		// Fall back to x-forwarded-for only as last resort, with IP validation.
+		// This is only reached when TRUSTED_PROXIES is configured, indicating
+		// the operator has explicitly acknowledged the proxy chain is trusted.
 		const forwardedFor = request.headers.get("x-forwarded-for")?.trim();
 		if (forwardedFor) {
 			const first = forwardedFor.split(",")[0]?.trim();
-			if (first) return first;
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
+			if (first && isValidIpFormat(first)) return first;
 		}
 		return null;
 	}
