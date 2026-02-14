@@ -243,7 +243,13 @@ export const getByExternalId = query({
 			encryptedOpenRouterKey:
 				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
 =======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
 			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
+>>>>>>> main
 >>>>>>> main
 			fileUploadCount: profile?.fileUploadCount ?? user.fileUploadCount ?? 0,
 			aiUsageCents: user.aiUsageCents,
@@ -327,7 +333,13 @@ export const getByExternalIdInternal = internalQuery({
 			encryptedOpenRouterKey:
 				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
 =======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
 			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
+>>>>>>> main
 >>>>>>> main
 			fileUploadCount: profile?.fileUploadCount ?? user.fileUploadCount ?? 0,
 			aiUsageCents: user.aiUsageCents,
