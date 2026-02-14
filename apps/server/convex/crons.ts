@@ -13,6 +13,7 @@
  */
 
 import { cronJobs } from "convex/server";
+import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { decrementStat, getStats, STAT_KEYS } from "./lib/dbStats";
@@ -22,7 +23,7 @@ const logger = createLogger("Cron");
 
 const crons = cronJobs();
 
-export default crons;
+crons.interval("refresh benchmarks", { hours: 8 }, (internal as any).benchmarks.fetchAndStoreBenchmarks);
 
 /**
  * Cleanup soft-deleted records
@@ -240,3 +241,5 @@ export const generateDatabaseStats = internalMutation({
 		}
 	},
 });
+
+export default crons;

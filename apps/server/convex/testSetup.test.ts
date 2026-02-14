@@ -14,6 +14,7 @@ import { v } from "convex/values";
 // Create modules object that convex-test expects (lazy-loaded functions)
 export const modules = {
   './auth.config.ts': () => import('./auth.config'),
+  './benchmarks.ts': () => import('./benchmarks'),
   './backgroundStream.ts': () => import('./backgroundStream'),
   './chats.ts': () => import('./chats'),
   './crons.ts': () => import('./crons'),
@@ -29,6 +30,7 @@ export const modules = {
   './lib/billingUtils.ts': () => import('./lib/billingUtils'),
   './lib/dbStats.ts': () => import('./lib/dbStats'),
   './lib/logger.ts': () => import('./lib/logger'),
+  './lib/model-matching.ts': () => import('./lib/model-matching'),
   './lib/rateLimiter.ts': () => import('./lib/rateLimiter'),
   './config/constants.ts': () => import('./config/constants'),
   './_generated/api.ts': () => import('./_generated/api'),

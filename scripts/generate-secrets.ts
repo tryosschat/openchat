@@ -24,8 +24,10 @@ const managedKeys = [
 	"ELECTRIC__PG_PROXY__PASSWORD",
 ];
 
-const preservedDefaults = new Map<string, string>([
-	["ELECTRIC_GATEKEEPER_SECRET", "replace-with-strong-secret"],
+const INSECURE_PLACEHOLDER = "replace-with-strong-secret";
+
+const preservedDefaults = new Map<string, () => string>([
+	["ELECTRIC_GATEKEEPER_SECRET", () => randomSecret(32)],
 ]);
 
 const existingEntries = new Map<string, string>();
@@ -129,10 +131,18 @@ for (const key of preservedKeyOrder) {
 	}
 }
 
-for (const [key, placeholder] of preservedDefaults) {
-	if (!preservedKeys.has(key)) {
-		preservedKeys.set(key, placeholder);
+for (const [key, generateSecret] of preservedDefaults) {
+	const existing = preservedKeys.get(key);
+	if (!existing) {
+		// No existing value — generate a secure random secret
+		preservedKeys.set(key, generateSecret());
 		preservedKeyOrder.push(key);
+	} else if (existing === INSECURE_PLACEHOLDER) {
+		// Replace the old insecure placeholder with a proper secret
+		console.warn(
+			`⚠️  Replacing insecure placeholder for ${key} with a generated secret.`,
+		);
+		preservedKeys.set(key, generateSecret());
 	}
 }
 
@@ -143,6 +153,17 @@ if (preservedKeyOrder.length > 0) {
 		if (value !== undefined) {
 			lines.push(`${key}=${value}`);
 		}
+	}
+}
+
+// Validate that no insecure placeholder values remain in the output
+for (const [key] of preservedDefaults) {
+	const value = preservedKeys.get(key);
+	if (value === INSECURE_PLACEHOLDER) {
+		console.error(
+			`❌ ELECTRIC_GATEKEEPER_SECRET still contains the insecure placeholder value. Aborting.`,
+		);
+		process.exit(1);
 	}
 }
 

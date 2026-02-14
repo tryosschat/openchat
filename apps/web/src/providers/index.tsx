@@ -4,7 +4,7 @@ import { ConvexProviderWithAuth, useMutation, useQuery } from "convex/react";
 import { Toaster } from "sonner";
 import { api } from "@server/convex/_generated/api";
 import { convexClient } from "../lib/convex";
-import { StableAuthProvider, authClient, useAuth } from "../lib/auth-client";
+import { StableAuthProvider, authClient, useAuth, type InitialAuthUser } from "../lib/auth-client";
 import { prefetchModels } from "../stores/model";
 import { useProviderStore } from "../stores/provider";
 import { useOpenRouterStore } from "../stores/openrouter";
@@ -51,6 +51,7 @@ const queryClient = new QueryClient({
 
 interface ProvidersProps {
   children: React.ReactNode;
+  initialUser?: InitialAuthUser;
 }
 
 function useStableConvexAuth() {
@@ -196,7 +197,7 @@ function ConvexAuthWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function Providers({ children }: ProvidersProps) {
+export function Providers({ children, initialUser }: ProvidersProps) {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -218,7 +219,7 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <PostHogProvider>
-      <StableAuthProvider>
+      <StableAuthProvider initialUser={initialUser}>
         <ConvexAuthWrapper>{content}</ConvexAuthWrapper>
       </StableAuthProvider>
     </PostHogProvider>
