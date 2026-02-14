@@ -16,8 +16,8 @@ import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules, rateLimiter } from "./testSetup.test";
 
-function asExternalId(t: any, externalId: string) {
-	return t.withIdentity({ subject: externalId });
+function asExternalId(t: any, externalId: string, opts?: { emailVerified?: boolean }) {
+	return t.withIdentity({ subject: externalId, emailVerified: opts?.emailVerified });
 }
 
 // Helper to create convex test instance with components registered
@@ -727,5 +727,100 @@ describe("users concurrent operations", () => {
 		});
 
 		expect(users).toHaveLength(1);
+	});
+});
+
+describe("users.ensure email migration security (OSS-57)", () => {
+	let t: ReturnType<typeof convexTest>;
+
+	beforeEach(() => {
+		t = createConvexTest();
+	});
+
+	test("should NOT link accounts when email is unverified", async () => {
+		// Step 1: Simulate an existing WorkOS user in the DB with a known email
+		const existingUserId = await t.run(async (ctx) => {
+			return await ctx.db.insert("users", {
+				externalId: "workos_old_id",
+				email: "victim@example.com",
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			});
+		});
+
+		// Step 2: Attacker registers with the victim's email but emailVerified is false
+		const attackerT = asExternalId(t, "attacker_id", { emailVerified: false });
+		const result = await attackerT.mutation(api.users.ensure, {
+			externalId: "attacker_id",
+			email: "victim@example.com",
+			name: "Attacker",
+		});
+
+		// The attacker should get a NEW user, not the victim's account
+		expect(result.userId).not.toBe(existingUserId);
+
+		// Verify the original user's externalId was NOT changed
+		const originalUser = await t.run(async (ctx) => {
+			return await ctx.db.get(existingUserId);
+		});
+		expect(originalUser?.externalId).toBe("workos_old_id");
+	});
+
+	test("should NOT link accounts when emailVerified is undefined", async () => {
+		// Existing WorkOS user
+		const existingUserId = await t.run(async (ctx) => {
+			return await ctx.db.insert("users", {
+				externalId: "workos_old_id_2",
+				email: "victim2@example.com",
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			});
+		});
+
+		// Caller without emailVerified in identity (defaults to undefined/false)
+		const callerT = asExternalId(t, "caller_no_verified");
+		const result = await callerT.mutation(api.users.ensure, {
+			externalId: "caller_no_verified",
+			email: "victim2@example.com",
+			name: "Caller",
+		});
+
+		// Should create new user, not link to existing
+		expect(result.userId).not.toBe(existingUserId);
+
+		// Existing user should be untouched
+		const originalUser = await t.run(async (ctx) => {
+			return await ctx.db.get(existingUserId);
+		});
+		expect(originalUser?.externalId).toBe("workos_old_id_2");
+	});
+
+	test("should link accounts when email IS verified", async () => {
+		// Existing WorkOS user
+		const existingUserId = await t.run(async (ctx) => {
+			return await ctx.db.insert("users", {
+				externalId: "workos_old_id_3",
+				email: "legitimate@example.com",
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			});
+		});
+
+		// Legitimate user with verified email
+		const legitimateT = asExternalId(t, "betterauth_new_id", { emailVerified: true });
+		const result = await legitimateT.mutation(api.users.ensure, {
+			externalId: "betterauth_new_id",
+			email: "legitimate@example.com",
+			name: "Legitimate User",
+		});
+
+		// Should link to the existing user
+		expect(result.userId).toBe(existingUserId);
+
+		// Verify the externalId was updated to the new Better Auth ID
+		const linkedUser = await t.run(async (ctx) => {
+			return await ctx.db.get(existingUserId);
+		});
+		expect(linkedUser?.externalId).toBe("betterauth_new_id");
 	});
 });

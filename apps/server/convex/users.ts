@@ -94,22 +94,10 @@ export const ensure = mutation({
 
 		// MIGRATION: Link WorkOS users to Better Auth by email
 		// Uses .first() since duplicate emails may exist from prior migrations
-<<<<<<< HEAD
-		if (!existing && args.email && Date.now() < EMAIL_LINK_MIGRATION_DEADLINE_MS) {
-||||||| 54e09ce
-		if (!existing && args.email) {
-=======
-<<<<<<< HEAD
 		// SECURITY: Only link if the caller's email is verified to prevent account takeover
-		// via unverified email registration (see OSS-37)
+		// via unverified email registration (see OSS-37, OSS-57)
 		const isEmailVerified = identity.emailVerified ?? false;
 		if (!existing && args.email && isEmailVerified && Date.now() < EMAIL_LINK_MIGRATION_DEADLINE_MS) {
-||||||| 54e09ce
-		if (!existing && args.email) {
-=======
-		if (!existing && args.email && Date.now() < EMAIL_LINK_MIGRATION_DEADLINE_MS) {
->>>>>>> main
->>>>>>> main
 			const existingByEmail = await ctx.db
 				.query("users")
 				.withIndex("by_email", (q) => q.eq("email", args.email))
@@ -256,55 +244,7 @@ export const getByExternalId = query({
 			// Profile fields: prefer profile data, fall back to user data for migration
 			name: profile?.name ?? user.name,
 			avatarUrl: profile?.avatarUrl ?? user.avatarUrl,
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
 			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
 			fileUploadCount: profile?.fileUploadCount ?? user.fileUploadCount ?? 0,
 			aiUsageCents: user.aiUsageCents,
 			aiUsageDate: user.aiUsageDate,
@@ -382,55 +322,7 @@ export const getByExternalIdInternal = internalQuery({
 			// Profile fields: prefer profile data, fall back to user data for migration
 			name: profile?.name ?? user.name,
 			avatarUrl: profile?.avatarUrl ?? user.avatarUrl,
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
-<<<<<<< HEAD
-||||||| 54e09ce
-			encryptedOpenRouterKey:
-				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
-=======
 			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
 			fileUploadCount: profile?.fileUploadCount ?? user.fileUploadCount ?? 0,
 			aiUsageCents: user.aiUsageCents,
 			aiUsageDate: user.aiUsageDate,
