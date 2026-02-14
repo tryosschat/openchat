@@ -301,4 +301,19 @@ export default defineSchema({
 		.index("by_chat", ["chatId", "status"])
 		.index("by_user", ["userId", "status"])
 		.index("by_status", ["status", "createdAt"]),
+	benchmarks: defineTable({
+		openRouterModelId: v.string(),
+		aaSlug: v.string(),
+		aaCreatorName: v.string(),
+		intelligenceIndex: v.optional(v.float64()),
+		codingIndex: v.optional(v.float64()),
+		mathIndex: v.optional(v.float64()),
+		mmluPro: v.optional(v.float64()),
+		gpqa: v.optional(v.float64()),
+		scicode: v.optional(v.float64()),
+		livecodebench: v.optional(v.float64()),
+		math500: v.optional(v.float64()),
+		aime: v.optional(v.float64()),
+		lastUpdated: v.float64(),
+	}).index("by_openrouter_id", ["openRouterModelId"]),
 });

@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef } from "react";
 import { usePromptDraftStore } from "@/stores/prompt-draft";
 
 /**
- * Hook for syncing prompt input with localStorage-backed draft persistence.
+ * Hook for syncing prompt input with sessionStorage-backed draft persistence.
  *
  * Features:
- * - Debounced saves (300ms) to avoid excessive localStorage writes
+ * - Debounced saves (300ms) to avoid excessive storage writes
  * - Per-chat drafts (chatId can be null for new chat)
  * - Auto-restores draft on mount
  * - Auto-clears draft on unmount when text is empty
@@ -68,7 +68,7 @@ export function usePromptDraft({ chatId, textInputController }: UsePromptDraftOp
 		clearStoredDraft(chatId);
 	}, [chatId, clearStoredDraft]);
 
-	// Sync text changes to localStorage (debounced)
+	// Sync text changes to sessionStorage (debounced)
 	// Using chatId and setDraft directly to avoid re-running on saveDraft recreation
 	useEffect(() => {
 		// Only save after initial restoration

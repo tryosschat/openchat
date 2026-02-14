@@ -206,8 +206,30 @@ export const useStreamStore = create<StreamState>()(
 			name: "openchat-stream",
 			storage: createJSONStorage(() => sessionStorage),
 			partialize: (state) => ({
-				activeStream: state.activeStream,
-				pendingUserMessage: state.pendingUserMessage,
+				// Persist only non-sensitive metadata for stream resumption.
+				// Sensitive fields (content, reasoning, text) are excluded to
+				// prevent exposure via XSS or local profile compromise.
+				activeStream: state.activeStream
+					? {
+							chatId: state.activeStream.chatId,
+							messageId: state.activeStream.messageId,
+							streamId: state.activeStream.streamId,
+							lastEventId: state.activeStream.lastEventId,
+							content: "",
+							reasoning: "",
+							startedAt: state.activeStream.startedAt,
+						}
+					: null,
+				pendingUserMessage: state.pendingUserMessage
+					? {
+							chatId: state.pendingUserMessage.chatId,
+							messageId: state.pendingUserMessage.messageId,
+							text: "",
+							createdAt: state.pendingUserMessage.createdAt,
+							mode: state.pendingUserMessage.mode,
+							resumeAt: state.pendingUserMessage.resumeAt,
+						}
+					: null,
 			}),
 		},
 

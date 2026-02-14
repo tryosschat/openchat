@@ -228,6 +228,8 @@ function HomePage() {
     const script = document.createElement('script');
     script.id = scriptId;
     script.src = 'https://autochangelog.com/embed/tryosschat/osschat/in-app.js';
+    script.integrity = 'sha384-pGN+jOtBiEl4BrWgwUVn1ffGM55mkhVcR4LZOshOVlknriOioc/SalkP6dpwpXJ7';
+    script.crossOrigin = 'anonymous';
     document.body.appendChild(script);
 
     return () => {
