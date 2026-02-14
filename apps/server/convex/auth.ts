@@ -10,6 +10,20 @@ import { query } from "./_generated/server";
 import { getAllowedOrigins } from "./lib/origins";
 
 /**
+ * Redact sensitive tokens from auth URLs for safe logging.
+ * Strips query string parameters (which contain one-time tokens) and replaces
+ * them with a redacted placeholder. Only the origin + pathname are preserved.
+ */
+function redactAuthUrl(url: string): string {
+	try {
+		const parsed = new URL(url);
+		return `${parsed.origin}${parsed.pathname}?token=***`;
+	} catch {
+		return "[invalid-url]";
+	}
+}
+
+/**
  * Production Convex site URL - used for OAuth callbacks.
  * All OAuth flows (including from preview environments) route through production.
  */
@@ -94,15 +108,16 @@ export const createAuth = (
 			requireEmailVerification: true,
 			sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
 				// TODO: integrate with email provider (e.g., Resend, SendGrid)
-				console.log(`[Auth] Password reset requested for ${user.email}: ${url}`);
+				// SECURITY: Never log full URL — it contains a one-time token (OSS-64)
+				console.log(`[Auth] Password reset requested for ${user.email}: ${redactAuthUrl(url)}`);
 			},
 		},
 		emailVerification: {
 			sendOnSignUp: true,
 			sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
 				// TODO: integrate with email provider (e.g., Resend, SendGrid)
-				// For now, log the verification URL for development/debugging
-				console.log(`[Auth] Verification email for ${user.email}: ${url}`);
+				// SECURITY: Never log full URL — it contains a one-time token (OSS-64)
+				console.log(`[Auth] Verification email for ${user.email}: ${redactAuthUrl(url)}`);
 			},
 		},
 		socialProviders: {
