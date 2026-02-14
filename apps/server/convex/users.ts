@@ -94,7 +94,16 @@ export const ensure = mutation({
 
 		// MIGRATION: Link WorkOS users to Better Auth by email
 		// Uses .first() since duplicate emails may exist from prior migrations
+<<<<<<< HEAD
+		// SECURITY: Only link if the caller's email is verified to prevent account takeover
+		// via unverified email registration (see OSS-37)
+		const isEmailVerified = identity.emailVerified ?? false;
+		if (!existing && args.email && isEmailVerified && Date.now() < EMAIL_LINK_MIGRATION_DEADLINE_MS) {
+||||||| 54e09ce
+		if (!existing && args.email) {
+=======
 		if (!existing && args.email && Date.now() < EMAIL_LINK_MIGRATION_DEADLINE_MS) {
+>>>>>>> main
 			const existingByEmail = await ctx.db
 				.query("users")
 				.withIndex("by_email", (q) => q.eq("email", args.email))
@@ -107,8 +116,11 @@ export const ensure = mutation({
 					updatedAt: Date.now(),
 				});
 				existing = existingByEmail;
-				console.log(`[Auth Migration] Linked user ${args.email} from WorkOS to Better Auth`);
+				console.log(`[Auth Migration] Linked user ${args.email} from WorkOS to Better Auth (email verified)`);
 			}
+		} else if (!existing && args.email && !isEmailVerified && Date.now() < EMAIL_LINK_MIGRATION_DEADLINE_MS) {
+			// Log attempts to link with unverified email for security monitoring
+			console.warn(`[Auth Migration] Blocked linking for unverified email ${args.email} (potential account takeover attempt)`);
 		}
 
 		const now = Date.now();
@@ -268,7 +280,13 @@ export const getByExternalId = query({
 			encryptedOpenRouterKey:
 				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
 =======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
 			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
+>>>>>>> main
 >>>>>>> main
 >>>>>>> main
 >>>>>>> main
@@ -382,7 +400,13 @@ export const getByExternalIdInternal = internalQuery({
 			encryptedOpenRouterKey:
 				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
 =======
+<<<<<<< HEAD
+||||||| 54e09ce
+			encryptedOpenRouterKey:
+				profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey,
+=======
 			hasOpenRouterKey: !!(profile?.encryptedOpenRouterKey ?? user.encryptedOpenRouterKey),
+>>>>>>> main
 >>>>>>> main
 >>>>>>> main
 >>>>>>> main
